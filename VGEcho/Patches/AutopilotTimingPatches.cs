@@ -32,4 +32,43 @@ internal static class AutopilotTimingPatches
 
     private static readonly AccessTools.FieldRef<IdleManager, float> UpdateTimerBaseRef =
         AccessTools.FieldRefAccess<IdleManager, float>("<updateTimerBase>k__BackingField");
+
+    /// <summary>
+    /// Postfix on <see cref="TravelManager.TravelToNextWaypoint"/>. The game
+    /// invokes this at the end of every leg of a journey: if more waypoints
+    /// remain, it starts the next leg; if the list is empty, travel ended.
+    /// In the empty-list case, and only when the player is on autopilot, we
+    /// zero <c>updateTimer</c> so the very next <see cref="IdleManager.Update"/>
+    /// tick calls <c>FindActivity</c> — eliminating the residual 0–12s wait
+    /// between drop-out and the next autonomous action.
+    /// </summary>
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(TravelManager), nameof(TravelManager.TravelToNextWaypoint))]
+    private static void TravelToNextWaypoint_Postfix()
+    {
+        if (!Plugin.Instance.CfgAutopilotTiming.Value) return;
+        if (!Plugin.Instance.CfgAutopilotArrivalSnap.Value) return;
+
+        var player = GamePlayer.current;
+        if (player == null || !player.autoPlay) return;
+
+        // The final-leg branch of TravelToNextWaypoint runs when waypoints is
+        // empty and sets travelCoroutine = null. Guard on both so we don't
+        // fire mid-journey between legs of a multi-jump trip.
+        if (player.waypoints.Count != 0) return;
+
+        var idle = Singleton<IdleManager>.Instance;
+        if (idle == null) return;
+
+        // TravelActive() also consults usingJumpgate. If a jump-gate coroutine
+        // is still in flight (it calls TravelToNextWaypoint as its last line),
+        // wait for it to finalize rather than firing early. In practice
+        // TravelActive is already false by the time the postfix runs because
+        // the orig method set travelCoroutine = null and usingJumpgate was
+        // cleared before this invocation — but belt-and-braces.
+        if (Singleton<TravelManager>.Instance.TravelActive()) return;
+
+        Plugin.Log.LogDebug("[autopilot-timing] arrival-snap: zeroing updateTimer");
+        UpdateTimerRef(idle) = 0f;
+    }
 }
