@@ -123,7 +123,125 @@ Gated by [Autopilot] ArrivalSnap config entry."
 
 ---
 
-## Task 2: ETA-sync patch — align the cycle timer with live travel ETA
+## Task 2: Fast-deposit — zero the cycle timer after each autopilot cargo operation
+
+**Goal of this task:** When the autopilot is unloading cargo at a station (or selling materials), each item currently moves with a ~1–2 s gap dictated by `SetQuickerUpdateTimer` (`updateTimer = 400 / cargoCapacity`). Patch that helper so the next cycle fires on the very next frame. A full cargo hold then drains in a handful of frames instead of minutes. Does not change per-cycle quantity — one unit per cycle stays — so the user perceives "instant stream" rather than "single atomic teleport." (A follow-on plan can later inflate per-cycle quantity via a transpiler; explicitly out of scope here.)
+
+Scope clarification: `SetQuickerUpdateTimer` is called from two places in `IdleManager`: after `cargo.Remove` during a station deposit (line 212 of the decompiled source) and after `SellItemFromMaterials` during auto-sell (line 267). Our postfix affects both — which matches the user's intent ("transferring storage … instant").
+
+**Files:**
+- Modify: `/home/fank/repo/vanguard-galaxy-echo/VGEcho/Plugin.cs` (add one `ConfigEntry<bool>` field, one `Config.Bind` call)
+- Modify: `/home/fank/repo/vanguard-galaxy-echo/VGEcho/Patches/AutopilotTimingPatches.cs` (add one Harmony postfix method)
+
+- [ ] **Step 1: Add the config entry field to Plugin.cs**
+
+In `/home/fank/repo/vanguard-galaxy-echo/VGEcho/Plugin.cs`, find the block of three `ConfigEntry<bool>` field declarations (near line 22–24 — the `CfgAutopilotTiming`, `CfgAutopilotEtaSync`, `CfgAutopilotArrivalSnap` triple). Immediately after the `CfgAutopilotArrivalSnap` line, add a fourth:
+
+```csharp
+    internal ConfigEntry<bool> CfgAutopilotFastDeposit = null!;
+```
+
+- [ ] **Step 2: Add the `Config.Bind` call**
+
+In the same file, inside `Awake()`, find the block of three `Config.Bind("Autopilot", ...)` calls (the `TimingEnabled`, `EtaSync`, `ArrivalSnap` triple near lines 32–44). Immediately after the `CfgAutopilotArrivalSnap = Config.Bind(...)` assignment, add:
+
+```csharp
+        CfgAutopilotFastDeposit = Config.Bind("Autopilot", "FastDeposit", true,
+            "Zero the IdleManager cycle timer after each autopilot cargo deposit or auto-sell " +
+            "transfer, so successive items move on the next frame instead of after the vanilla " +
+            "400/cargoCapacity seconds. Still one unit per cycle — full stack transfer is a " +
+            "separate feature. Requires TimingEnabled.");
+```
+
+- [ ] **Step 3: Add the `SetQuickerUpdateTimer` postfix**
+
+In `/home/fank/repo/vanguard-galaxy-echo/VGEcho/Patches/AutopilotTimingPatches.cs`, place the following method inside the `AutopilotTimingPatches` class *after* the existing `TravelToNextWaypoint_Postfix` method (the end of the class body, before the closing `}` of the class):
+
+```csharp
+    /// <summary>
+    /// Postfix on the private <c>IdleManager.SetQuickerUpdateTimer</c>. The
+    /// vanilla helper sets <c>updateTimer = 400f / cargoCapacity</c>, giving
+    /// a ~1–2 s gap between consecutive cargo deposits (and auto-sells). When
+    /// the player is on autopilot and fast-deposit is enabled, we overwrite
+    /// that with 0 so the next <see cref="IdleManager.Update"/> tick calls
+    /// <c>FindActivity</c> again on the very next frame. A full cargo hold
+    /// drains in a handful of frames instead of minutes.
+    ///
+    /// Note: per-cycle quantity is unchanged (still one unit per cycle for
+    /// regular items, 20/mag-size for ammo, 20 for currency). Making each
+    /// cycle transfer the full stack is a separate feature that requires an
+    /// IL transpiler on <c>IdleManager.FindActivity</c>.
+    /// </summary>
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(IdleManager), "SetQuickerUpdateTimer")]
+    private static void SetQuickerUpdateTimer_Postfix(IdleManager __instance)
+    {
+        if (!Plugin.Instance.CfgAutopilotTiming.Value) return;
+        if (!Plugin.Instance.CfgAutopilotFastDeposit.Value) return;
+
+        var player = GamePlayer.current;
+        if (player == null || !player.autoPlay) return;
+
+        Plugin.Log.LogDebug("[autopilot-timing] fast-deposit: zeroing updateTimer");
+        UpdateTimerRef(__instance) = 0f;
+    }
+```
+
+The `HarmonyPatch` targets the method by string literal (`"SetQuickerUpdateTimer"`) because it's `private`; `nameof` cannot reach private members of types declared in another assembly.
+
+- [ ] **Step 4: Build**
+
+```bash
+cd /home/fank/repo/vanguard-galaxy-echo && make build
+```
+
+Expected: build succeeds with 0 errors, 0 warnings.
+
+- [ ] **Step 5: Deploy**
+
+```bash
+cd /home/fank/repo/vanguard-galaxy-echo && make deploy
+```
+
+- [ ] **Step 6: In-game verification (user-performed)**
+
+1. Launch the game with a save that gives you a full (or nearly full) cargo hold of mixed items. Easiest: autopilot-mine for a while until cargo fills, then let it auto-travel to a friendly station.
+2. Open the BepInEx console.
+3. After docking, watch the BepInEx console and the ship cargo panel. Expect the cargo hold to drain visibly in one or two seconds total rather than one item every 1–2 s.
+4. Expect a stream of console lines:
+
+    ```
+    [Debug  :Vanguard Galaxy Echo] [autopilot-timing] fast-deposit: zeroing updateTimer
+    ```
+
+    one per deposited item. The line frequency matches per-frame (60/s) rather than per-second.
+5. Control test: edit `BepInEx/config/dev.fankserver.vgecho.cfg`, set `[Autopilot] FastDeposit = false`, relaunch. Dock again — the vanilla 1–2 s between-item gap should return.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add VGEcho/Plugin.cs VGEcho/Patches/AutopilotTimingPatches.cs
+git commit -m "$(cat <<'EOF'
+feat: autopilot fast-deposit — zero cycle timer after cargo transfer
+
+Postfix on IdleManager.SetQuickerUpdateTimer: when the player is on
+autopilot and fast-deposit is enabled, overwrite the vanilla
+updateTimer = 400f/cargoCapacity reset with 0f so the next Update tick
+runs FindActivity again immediately. A full cargo hold drains in a
+handful of frames instead of minutes of 1-unit-per-second trickle.
+
+Affects both station deposits and auto-sell (both call the same helper).
+Per-cycle quantity is unchanged — still one unit per cycle; full-stack
+teleport is a separate feature requiring a FindActivity transpiler.
+
+Gated by [Autopilot] FastDeposit config entry (default on).
+EOF
+)"
+```
+
+---
+
+## Task 3: ETA-sync patch — align the cycle timer with live travel ETA
 
 **Goal of this task:** While the ship is warping between POIs in-system, continuously overwrite `updateTimer`/`updateTimerBase` so the green progress circle visibly fills in lockstep with arrival. Re-purposes ECHO's timer as a travel-ETA indicator and eliminates the no-op "cycle completes, calls FindActivity, bails because TravelActive, resets to 12s" spin that happens during long trips.
 
@@ -314,9 +432,9 @@ arrival-snap covers the post-gate drop-out."
 
 ---
 
-## Task 3: Polish — README touch-up and config documentation
+## Task 4: Polish — README touch-up and config documentation
 
-**Goal of this task:** Ensure the README accurately reflects shipped behavior (it already describes both features, but this confirms no drift after implementation) and add a short "config reference" section listing the three toggles and their defaults.
+**Goal of this task:** Add a short "Config reference" section to the README that lists the four `[Autopilot]` toggles (master, fast-deposit, ETA-sync, arrival-snap) with defaults and a one-line purpose each.
 
 **Files:**
 - Modify: `/home/fank/repo/vanguard-galaxy-echo/README.md`
@@ -331,13 +449,14 @@ Open `/home/fank/repo/vanguard-galaxy-echo/README.md`. After the existing "First
 
 Config file: `<game>/BepInEx/config/dev.fankserver.vgecho.cfg` (created on first launch).
 
-| Key                          | Default | Purpose                                                                                                   |
-| ---------------------------- | ------- | --------------------------------------------------------------------------------------------------------- |
-| `[Autopilot] TimingEnabled`  | `true`  | Master toggle. When `false`, both ETA-sync and arrival-snap are skipped and the vanilla 12s cycle runs.   |
-| `[Autopilot] EtaSync`        | `true`  | While warping, overwrite the IdleManager cycle with live travel ETA. Circle becomes a progress indicator. |
-| `[Autopilot] ArrivalSnap`    | `true`  | On final-waypoint arrival, zero the cycle so the next autonomous action fires immediately.               |
+| Key                          | Default | Purpose                                                                                                         |
+| ---------------------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `[Autopilot] TimingEnabled`  | `true`  | Master toggle. When `false`, all autopilot timing tweaks are skipped and the vanilla cycle runs unchanged.      |
+| `[Autopilot] EtaSync`        | `true`  | While warping, overwrite the IdleManager cycle with live travel ETA. Circle becomes a travel-progress indicator.|
+| `[Autopilot] ArrivalSnap`    | `true`  | On final-waypoint arrival, zero the cycle so the next autonomous action fires immediately.                      |
+| `[Autopilot] FastDeposit`    | `true`  | After each autopilot cargo deposit or auto-sell, zero the cycle so successive items move on the next frame.     |
 
-Neither patch changes what the autopilot decides to do — only *when* it decides. Disable either independently via config; no rebuild or redeploy needed, just relaunch the game.
+Neither patch changes what the autopilot decides to do — only *when* it decides. Disable any feature independently via config; no rebuild or redeploy needed, just relaunch the game.
 ```
 
 - [ ] **Step 2: Verify — no build step needed, README-only change**
@@ -354,7 +473,7 @@ Expected: the new "Config reference" section appears at the end.
 git add README.md
 git commit -m "docs: add Config reference table to README
 
-Lists the three [Autopilot] config keys with defaults and a one-line
+Lists the four [Autopilot] config keys with defaults and a one-line
 purpose each. No behavior change."
 ```
 
@@ -366,7 +485,7 @@ If any feature misbehaves in a specific scenario:
 
 - **Disable one feature:** edit `BepInEx/config/dev.fankserver.vgecho.cfg`, set the individual toggle to `false`, relaunch. No rebuild needed.
 - **Disable all:** set `[Autopilot] TimingEnabled = false`.
-- **Full revert:** `git revert` the Task 1 and Task 2 commits. Task 3 (docs) can stay or be reverted separately.
+- **Full revert:** `git revert` the Task 1, Task 2, and Task 3 commits. Task 4 (docs) can stay or be reverted separately.
 
 ## Known limitations
 
@@ -379,6 +498,7 @@ If any feature misbehaves in a specific scenario:
 
 These were discussed and deliberately deferred:
 
-- Shortening `updateTimerBase` directly (12s → 6s) for a faster vanilla cycle. Orthogonal to arrival sync and can be layered later as a third toggle.
+- Shortening `updateTimerBase` directly (12s → 6s) for a faster vanilla cycle. Orthogonal to arrival sync and can be layered later as another toggle.
 - Shortening `DelayIdleActivities(delay = 15f)` post-interaction cooldown. The `delayTimer` auto-clears in space (`IdleManager.Update:94–96`), so its real-world impact is minimal; revisit only if needed.
 - Filling in the unused `ExpertActivityDelay = 6f` constant as a fourth skill tier. That's a game-design change, not a timing alignment.
+- **Full-stack deposit** (move an entire iron stack in one `cargo.Remove` call instead of one unit per cycle). Requires an IL transpiler on `IdleManager.FindActivity` to rewrite the hardcoded `amount = 1` local. Task 2's per-frame cycling makes this visually "fast enough" for most cases; add later if needed.
