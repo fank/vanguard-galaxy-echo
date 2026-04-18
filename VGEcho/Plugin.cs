@@ -22,6 +22,7 @@ public class Plugin : BaseUnityPlugin
     internal ConfigEntry<bool> CfgAutopilotTiming = null!;
     internal ConfigEntry<bool> CfgAutopilotEtaSync = null!;
     internal ConfigEntry<bool> CfgAutopilotArrivalSnap = null!;
+    internal ConfigEntry<bool> CfgAutopilotFastDeposit = null!;
 
     private Harmony _harmony = null!;
 
@@ -41,6 +42,11 @@ public class Plugin : BaseUnityPlugin
             "When the ship reaches its final waypoint, zero the IdleManager cycle timer so the " +
             "next task fires on the following Update tick instead of waiting up to 12s. Covers " +
             "jump-gate transitions where ETA is unavailable. Requires TimingEnabled.");
+        CfgAutopilotFastDeposit = Config.Bind("Autopilot", "FastDeposit", true,
+            "Zero the IdleManager cycle timer after each autopilot cargo deposit or auto-sell " +
+            "transfer, so successive items move on the next frame instead of after the vanilla " +
+            "400/cargoCapacity seconds. Still one unit per cycle — full stack transfer is a " +
+            "separate feature. Requires TimingEnabled.");
 
         _harmony = new Harmony(PluginGuid);
         _harmony.PatchAll(typeof(Patches.AutopilotTimingPatches));

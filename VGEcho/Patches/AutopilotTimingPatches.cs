@@ -71,4 +71,32 @@ internal static class AutopilotTimingPatches
         Plugin.Log.LogDebug("[autopilot-timing] arrival-snap: zeroing updateTimer");
         UpdateTimerRef(idle) = 0f;
     }
+
+    /// <summary>
+    /// Postfix on the private <c>IdleManager.SetQuickerUpdateTimer</c>. The
+    /// vanilla helper sets <c>updateTimer = 400f / cargoCapacity</c>, giving
+    /// a ~1–2 s gap between consecutive cargo deposits (and auto-sells). When
+    /// the player is on autopilot and fast-deposit is enabled, we overwrite
+    /// that with 0 so the next <see cref="IdleManager.Update"/> tick calls
+    /// <c>FindActivity</c> again on the very next frame. A full cargo hold
+    /// drains in a handful of frames instead of minutes.
+    ///
+    /// Note: per-cycle quantity is unchanged (still one unit per cycle for
+    /// regular items, 20/mag-size for ammo, 20 for currency). Making each
+    /// cycle transfer the full stack is a separate feature that requires an
+    /// IL transpiler on <c>IdleManager.FindActivity</c>.
+    /// </summary>
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(IdleManager), "SetQuickerUpdateTimer")]
+    private static void SetQuickerUpdateTimer_Postfix(IdleManager __instance)
+    {
+        if (!Plugin.Instance.CfgAutopilotTiming.Value) return;
+        if (!Plugin.Instance.CfgAutopilotFastDeposit.Value) return;
+
+        var player = GamePlayer.current;
+        if (player == null || !player.autoPlay) return;
+
+        Plugin.Log.LogDebug("[autopilot-timing] fast-deposit: zeroing updateTimer");
+        UpdateTimerRef(__instance) = 0f;
+    }
 }
