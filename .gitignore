@@ -1,0 +1,18 @@
+# Build artifacts
+bin/
+obj/
+*.user
+
+# IDE
+.vs/
+.idea/
+*.sln.iml
+
+# Game assembly symlinks (resolved at build time by Makefile)
+VGEcho/lib/*.dll
+
+# Local overrides
+*.local
+
+# Claude Code runtime state
+.claude/
