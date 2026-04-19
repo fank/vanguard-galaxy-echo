@@ -38,11 +38,6 @@ internal static class AutopilotTimingPatches
     // vanilla IdleManager cycle to resume naturally after warp ends.
     private static bool _wasSyncing;
 
-    // Floor for updateTimerBase while ETA-syncing. If initial ETA is smaller
-    // (e.g. very short hop), we clamp up so the fill circle always shows some
-    // travel progress rather than a flash.
-    private const float MinEtaBase = 3f;
-
     /// <summary>
     /// Postfix on <see cref="TravelManager.TravelToNextWaypoint"/>. The game
     /// invokes this at the end of every leg of a journey: if more waypoints
@@ -113,14 +108,24 @@ internal static class AutopilotTimingPatches
     /// <summary>
     /// Postfix on <see cref="IdleManager.Update"/>. Runs every frame. When the
     /// player is on autopilot and <see cref="TravelManager.isWarping"/> is
-    /// true, overwrite <c>updateTimer</c> with the live ETA so the progress
-    /// circle becomes a travel-ETA indicator. When the game re-sets the timer
-    /// via <c>FindActivity</c>'s no-op-during-travel branch, our postfix
-    /// overwrites the 12s default back to the live ETA immediately.
+    /// true, overwrite <c>updateTimer</c> and <c>updateTimerBase</c> so the
+    /// autopilot side-tab's green fill circle tracks live <b>distance-based
+    /// progress</b> along the trip — not seconds remaining.
     ///
-    /// <c>updateTimerBase</c> is captured once at warp start and held steady,
-    /// so <c>SideTabAutopilot</c>'s <c>fillAmount = 1 - updateTimer/base</c>
-    /// formula produces a smooth 0→1 fill over the trip.
+    /// Why distance instead of ETA: the ship accelerates for ~10 s, cruises,
+    /// then decelerates. A naive <c>eta = remainingDistance / travelSpeed</c>
+    /// blows up on the first tick of warp (<c>travelSpeed ≈ 0</c>), producing
+    /// a huge seed that then collapses the moment the ship gets any real
+    /// speed — the circle rockets to ~99 % in two frames and crawls the rest.
+    /// Distance-based progress is speed-independent and monotonic: the circle
+    /// fills at the ship's actual spatial progress (slow during accel/decel,
+    /// fast during cruise), which matches the player's intuition.
+    ///
+    /// We seed <c>updateTimerBase = totalDistance</c> once per warp leg and
+    /// grow it if the trip lengthens (waypoint added mid-flight). Each tick
+    /// we set <c>updateTimer = remainingDistance</c>. <c>SideTabAutopilot</c>'s
+    /// <c>fillAmount = 1 - updateTimer/base</c> then renders as the fraction
+    /// of the trip covered.
     /// </summary>
     [HarmonyPostfix]
     [HarmonyPatch(typeof(IdleManager), "Update")]
@@ -143,65 +148,54 @@ internal static class AutopilotTimingPatches
         var travel = Singleton<TravelManager>.Instance;
         if (travel == null || !travel.isWarping)
         {
-            // Travel ended or was cancelled. Let the vanilla cycle resume:
-            // the next FindActivity call (or the arrival-snap patch) will
-            // restore a sane updateTimer/base pairing.
             _wasSyncing = false;
             return;
         }
 
-        float eta = ComputeEtaSeconds(travel.remainingDistance, GetSpaceShipTravelSpeed());
+        float totalDistance = travel.totalDistance;
+        float remainingDistance = Mathf.Max(0f, travel.remainingDistance);
+
+        // Guard: TravelManager clears totalDistance to 0 on arrival, and there
+        // is a brief window at warp start where isWarping has flipped true
+        // but totalDistance hasn't been set yet. In both cases, skip.
+        if (totalDistance <= 0f) return;
 
         if (!_wasSyncing)
         {
-            // First tick of a new warp — seed the base so the circle starts empty.
-            float seededBase = Mathf.Max(eta, MinEtaBase);
-            UpdateTimerBaseRef(__instance) = seededBase;
+            UpdateTimerBaseRef(__instance) = totalDistance;
             Plugin.Log.LogInfo(
-                $"[autopilot-timing] eta-sync begin: eta={eta:F2}s, base={seededBase:F2}s");
+                $"[autopilot-timing] eta-sync begin: distance={totalDistance:F1}u, " +
+                $"est-eta={EstimateTripSeconds(totalDistance):F1}s");
             _wasSyncing = true;
         }
 
-        // Hold the base steady unless the trip lengthened (e.g. waypoint added
-        // mid-flight). Only grow, never shrink — shrinking would make fillAmount
-        // jump backward visually.
+        // Grow-only base: if the trip lengthens (e.g. waypoint added mid-flight),
+        // extend the base so fillAmount never jumps backward.
         float currentBase = UpdateTimerBaseRef(__instance);
-        if (eta > currentBase)
+        if (totalDistance > currentBase)
         {
-            UpdateTimerBaseRef(__instance) = eta;
+            UpdateTimerBaseRef(__instance) = totalDistance;
         }
 
-        // Always overwrite updateTimer with the live ETA. This replaces both
-        // the vanilla `updateTimer -= Time.deltaTime` from IdleManager.Update
-        // and any mid-travel FindActivity re-set.
-        UpdateTimerRef(__instance) = eta;
+        UpdateTimerRef(__instance) = remainingDistance;
     }
 
     /// <summary>
-    /// Pull the current ship's warp speed off the singleton gameplay manager.
-    /// Returns 0 (caller will floor) if the manager or ship is unavailable —
-    /// which happens briefly during scene transitions and the first frame
-    /// after emergency jumps.
+    /// Rough best-case trip duration for logging purposes only. Uses the
+    /// ship's configured <c>baseMaxWarpSpeed</c> (no fuel/bonus multipliers,
+    /// no accel/decel overhead), so the real trip will always take longer.
+    /// Returns 0 if the ship or its configured max speed is unavailable — the
+    /// log line just prints "est-eta=0.0s" in that case and the circle itself
+    /// is unaffected because it uses distance, not this estimate.
     /// </summary>
-    private static float GetSpaceShipTravelSpeed()
+    private static float EstimateTripSeconds(float distance)
     {
         var gm = GameplayManager.Instance;
         if (gm == null) return 0f;
         var ship = gm.spaceShip;
-        if (ship == null || ship.unitData == null) return 0f;
-        return ship.unitData.travelSpeed;
-    }
-
-    /// <summary>
-    /// Compute estimated seconds-to-arrival from a remaining-distance and a
-    /// current speed. Floors speed to a small epsilon so we never divide by
-    /// zero or return a negative ETA when the ship has stopped momentarily
-    /// (e.g. waiting on scene load).
-    /// </summary>
-    internal static float ComputeEtaSeconds(float remainingDistance, float travelSpeed)
-    {
-        const float minSpeed = 0.1f;
-        float speed = Mathf.Max(travelSpeed, minSpeed);
-        return Mathf.Max(0f, remainingDistance) / speed;
+        if (ship == null) return 0f;
+        float maxSpeed = ship.baseMaxWarpSpeed;
+        if (maxSpeed <= 0.1f) return 0f;
+        return distance / maxSpeed;
     }
 }
