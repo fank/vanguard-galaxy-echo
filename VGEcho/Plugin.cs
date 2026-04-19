@@ -35,9 +35,10 @@ public class Plugin : BaseUnityPlugin
             "Master enable for autopilot (IdleManager) timing tweaks. When false, both " +
             "ETA-sync and arrival-snap are skipped and the vanilla 12s cycle runs unchanged.");
         CfgAutopilotEtaSync = Config.Bind("Autopilot", "EtaSync", true,
-            "While warping, continuously set the IdleManager cycle to match the live travel ETA " +
-            "(remainingDistance / travelSpeed). Makes the green progress circle complete exactly " +
-            "on drop-out instead of running its own 12s loop during travel. Requires TimingEnabled.");
+            "While warping, drive the IdleManager cycle timer from the ship's distance-based " +
+            "travel progress (remainingDistance / totalDistance) instead of the vanilla 12s " +
+            "loop. The Autopilot side-tab's green fill circle becomes a travel-progress " +
+            "indicator that completes exactly on drop-out. Requires TimingEnabled.");
         CfgAutopilotArrivalSnap = Config.Bind("Autopilot", "ArrivalSnap", true,
             "When the ship reaches its final waypoint, zero the IdleManager cycle timer so the " +
             "next task fires on the following Update tick instead of waiting up to 12s. Covers " +

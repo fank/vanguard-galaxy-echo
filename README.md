@@ -43,3 +43,16 @@ make deploy GAME_DIR="/mnt/d/SteamLibrary/steamapps/common/Vanguard Galaxy"
 2. `make deploy`
 3. Launch the game, open the BepInEx console
 4. Expect a load line: `[Info :Vanguard Galaxy Echo] Vanguard Galaxy Echo v0.1.0 loaded`
+
+## Config reference
+
+Config file: `<game>/BepInEx/config/dev.fankserver.vgecho.cfg` (created on first launch).
+
+| Key                          | Default | Purpose                                                                                                         |
+| ---------------------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `[Autopilot] TimingEnabled`  | `true`  | Master toggle. When `false`, all autopilot timing tweaks are skipped and the vanilla cycle runs unchanged.      |
+| `[Autopilot] EtaSync`        | `true`  | While warping, drive the cycle from distance-based travel progress. Fill circle completes exactly on drop-out.  |
+| `[Autopilot] ArrivalSnap`    | `true`  | On final-waypoint arrival, zero the cycle so the next autonomous action fires immediately.                      |
+| `[Autopilot] FastDeposit`    | `true`  | After each autopilot cargo deposit or auto-sell, zero the cycle so successive items move on the next frame.     |
+
+Neither patch changes what the autopilot decides to do — only *when* it decides. Disable any feature independently via config; no rebuild or redeploy needed, just relaunch the game.
