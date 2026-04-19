@@ -432,14 +432,32 @@ arrival-snap covers the post-gate drop-out."
 
 ---
 
-## Task 4: Polish — README touch-up and config documentation
+## Task 4: Polish — README config reference + Plugin.cs help-text cleanup
 
-**Goal of this task:** Add a short "Config reference" section to the README that lists the four `[Autopilot]` toggles (master, fast-deposit, ETA-sync, arrival-snap) with defaults and a one-line purpose each.
+**Goal of this task:** Two user-visible documentation touch-ups:
+
+1. Add a "Config reference" section to `README.md` listing the four `[Autopilot]` toggles.
+2. Fix the `[Autopilot] EtaSync` `Config.Bind` description in `Plugin.cs` — it still describes the old speed-based formula `(remainingDistance / travelSpeed)` which the `80e1783` fix removed. The description is what players see inside `BepInEx/config/dev.fankserver.vgecho.cfg`, so it needs to match shipped behavior (distance-based progress).
 
 **Files:**
 - Modify: `/home/fank/repo/vanguard-galaxy-echo/README.md`
+- Modify: `/home/fank/repo/vanguard-galaxy-echo/VGEcho/Plugin.cs`
 
-- [ ] **Step 1: Append a "Config reference" section to README.md**
+- [ ] **Step 1: Update the `EtaSync` config description in `Plugin.cs`**
+
+Open `/home/fank/repo/vanguard-galaxy-echo/VGEcho/Plugin.cs`. Find the `CfgAutopilotEtaSync = Config.Bind(...)` call (inside `Awake`, after `CfgAutopilotTiming`). Replace the entire three-string-literal description argument with:
+
+```csharp
+        CfgAutopilotEtaSync = Config.Bind("Autopilot", "EtaSync", true,
+            "While warping, drive the IdleManager cycle timer from the ship's distance-based " +
+            "travel progress (remainingDistance / totalDistance) instead of the vanilla 12s " +
+            "loop. The Autopilot side-tab's green fill circle becomes a travel-progress " +
+            "indicator that completes exactly on drop-out. Requires TimingEnabled.");
+```
+
+Everything else in `Plugin.cs` stays identical — same field declaration, same section name (`"Autopilot"`), same key (`"EtaSync"`), same default (`true`). Only the help-text (fourth argument) changes.
+
+- [ ] **Step 2: Append a "Config reference" section to README.md**
 
 Open `/home/fank/repo/vanguard-galaxy-echo/README.md`. After the existing "First-run verification" section (currently the last section), append:
 
@@ -452,29 +470,52 @@ Config file: `<game>/BepInEx/config/dev.fankserver.vgecho.cfg` (created on first
 | Key                          | Default | Purpose                                                                                                         |
 | ---------------------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
 | `[Autopilot] TimingEnabled`  | `true`  | Master toggle. When `false`, all autopilot timing tweaks are skipped and the vanilla cycle runs unchanged.      |
-| `[Autopilot] EtaSync`        | `true`  | While warping, overwrite the IdleManager cycle with live travel ETA. Circle becomes a travel-progress indicator.|
+| `[Autopilot] EtaSync`        | `true`  | While warping, drive the cycle from distance-based travel progress. Fill circle completes exactly on drop-out.  |
 | `[Autopilot] ArrivalSnap`    | `true`  | On final-waypoint arrival, zero the cycle so the next autonomous action fires immediately.                      |
 | `[Autopilot] FastDeposit`    | `true`  | After each autopilot cargo deposit or auto-sell, zero the cycle so successive items move on the next frame.     |
 
 Neither patch changes what the autopilot decides to do — only *when* it decides. Disable any feature independently via config; no rebuild or redeploy needed, just relaunch the game.
 ```
 
-- [ ] **Step 2: Verify — no build step needed, README-only change**
+- [ ] **Step 3: Build to confirm Plugin.cs change compiles**
 
 ```bash
-cat README.md | tail -20
+cd /home/fank/repo/vanguard-galaxy-echo && make build
 ```
 
-Expected: the new "Config reference" section appears at the end.
+Expected: `0 Warning(s)`, `0 Error(s)`. Only Plugin.cs touched the code path — a string change — so the build is essentially a sanity check.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Deploy**
 
 ```bash
-git add README.md
-git commit -m "docs: add Config reference table to README
+cd /home/fank/repo/vanguard-galaxy-echo && make deploy
+```
 
-Lists the four [Autopilot] config keys with defaults and a one-line
-purpose each. No behavior change."
+If `cp` fails with `Invalid argument` (game running), fall back to `install -m 644` for `VGEcho.dll` and `VGEcho.pdb`. Do not modify the Makefile.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add README.md VGEcho/Plugin.cs
+git commit -m "$(cat <<'EOF'
+docs: config reference in README + fix stale EtaSync help text
+
+Two user-visible doc touches:
+
+1. README gains a "Config reference" table listing the four [Autopilot]
+   toggles (TimingEnabled, EtaSync, ArrivalSnap, FastDeposit) with
+   defaults and one-line purposes.
+
+2. Plugin.cs's CfgAutopilotEtaSync Config.Bind description still
+   referenced the old speed-based formula "(remainingDistance /
+   travelSpeed)" that the 80e1783 fix replaced. Update the help text
+   to describe the distance-based progress that actually ships. The
+   description is what players see in BepInEx/config/dev.fankserver.
+   vgecho.cfg, so it has to match reality.
+
+No behavior change — strings only.
+EOF
+)"
 ```
 
 ---
