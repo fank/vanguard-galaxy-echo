@@ -1,0 +1,28 @@
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directory: "/VGEcho"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      bepinex:
+        patterns:
+          - "BepInEx.*"
+    ignore:
+      # Pinned to the game's Unity runtime — bumping would desync stubs.
+      - dependency-name: "UnityEngine.Modules"
+      # BepInEx 6 is a separate major branch with a different plugin API.
+      # Stay on the 5.x stable line until there's a deliberate migration.
+      - dependency-name: "BepInEx.Core"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"
