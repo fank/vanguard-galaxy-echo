@@ -20,7 +20,7 @@
     <PackageReference Include="BepInEx.Core" Version="5.*" />
     <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />
     <PackageReference Include="UnityEngine.Modules" Version="6000.2.6" IncludeAssets="compile" />
-    <PackageReference Include="HarmonyX" Version="2.10.*" />
+    <PackageReference Include="HarmonyX" Version="2.16.*" />
   </ItemGroup>
 
   <ItemGroup>
