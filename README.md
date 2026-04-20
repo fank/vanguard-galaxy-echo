@@ -6,13 +6,19 @@ that enhances ECHO — the in-game autopilot AI.
 ## Current features
 
 - **Autopilot ETA-sync** — while the ship is warping, the green progress circle on
-  the Autopilot side-tab fills at the live travel ETA instead of running its
-  vanilla 12-second cycle. Circle completes exactly on drop-out.
+  the Autopilot side-tab fills at the ship's distance-based travel progress
+  instead of running its vanilla 12-second cycle. Circle completes exactly on
+  drop-out.
 - **Autopilot arrival-snap** — when the ship reaches its final waypoint, the
   IdleManager task cycle timer is zeroed so the next autonomous action fires
   on the following frame instead of after a 0–12 s residual wait.
+- **Autopilot fast-deposit** — when the autopilot is unloading cargo at a
+  station (or auto-selling materials), each transfer fires on the next frame
+  instead of after the vanilla ~1–2 s per-item gap. A full cargo hold drains
+  in a handful of frames.
 
-Both toggles live under `[Autopilot]` in `BepInEx/config/dev.fankserver.vgecho.cfg`.
+All four toggles — master `TimingEnabled` plus the three features above —
+live under `[Autopilot]` in `BepInEx/config/dev.fankserver.vgecho.cfg`.
 
 ## Requirements
 
@@ -55,4 +61,4 @@ Config file: `<game>/BepInEx/config/dev.fankserver.vgecho.cfg` (created on first
 | `[Autopilot] ArrivalSnap`    | `true`  | On final-waypoint arrival, zero the cycle so the next autonomous action fires immediately.                      |
 | `[Autopilot] FastDeposit`    | `true`  | After each autopilot cargo deposit or auto-sell, zero the cycle so successive items move on the next frame.     |
 
-Neither patch changes what the autopilot decides to do — only *when* it decides. Disable any feature independently via config; no rebuild or redeploy needed, just relaunch the game.
+None of these patches change what the autopilot decides to do — only *when* it decides. Disable any feature independently via config; no rebuild or redeploy needed, just relaunch the game.
