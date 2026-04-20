@@ -1,0 +1,84 @@
+name: Package release
+
+# Triggers when a GitHub Release is published. Also runnable manually.
+#
+# The plugin references Assembly-CSharp.dll — the game's proprietary
+# assembly — which can't live on a public runner. Instead the repo
+# commits a PUBLICIZED stub (method signatures only, no IL) at
+# VGEcho/lib/Assembly-CSharp.dll. CI compiles against that stub; the
+# real game assembly takes over at runtime via Mono's late binding.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to (re)package"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+    steps:
+      - name: Checkout repo at release tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Verify publicized game reference is committed
+        run: |
+          if [ ! -s VGEcho/lib/Assembly-CSharp.dll ]; then
+            echo "::error::VGEcho/lib/Assembly-CSharp.dll is missing or empty. Regenerate via 'assembly-publicizer ... -o VGEcho/lib/Assembly-CSharp.dll' and commit."
+            exit 1
+          fi
+          echo "Publicized reference present: $(du -h VGEcho/lib/Assembly-CSharp.dll | cut -f1)"
+
+      - name: Build VGEcho.dll
+        run: dotnet build VGEcho/VGEcho.csproj -c Debug --nologo
+
+      - name: Stage release layout
+        id: stage
+        run: |
+          VERSION=$(grep 'PluginVersion =' VGEcho/Plugin.cs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          PKG_NAME="VGEcho-v${VERSION}"
+          # Nested VGEcho/ is intentional: it's the folder the user drops
+          # into BepInEx/plugins/.
+          PKG_DIR="dist/${PKG_NAME}/VGEcho"
+
+          rm -rf "dist/${PKG_NAME}"
+          mkdir -p "$PKG_DIR"
+
+          cp VGEcho/bin/Debug/netstandard2.1/VGEcho.dll "$PKG_DIR/"
+          cp README.md "$PKG_DIR/"
+          [ -f LICENSE ] && cp LICENSE "$PKG_DIR/" || true
+
+          SIZE=$(du -sh "$PKG_DIR" | cut -f1)
+          echo "Staged DLL + README — $SIZE at $PKG_DIR"
+
+          echo "pkg_name=${PKG_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Zip release bundle
+        run: |
+          (cd "dist/${{ steps.stage.outputs.pkg_name }}" && \
+             zip -qr "../${{ steps.stage.outputs.pkg_name }}.zip" VGEcho)
+          ls -lh "dist/${{ steps.stage.outputs.pkg_name }}.zip"
+
+      - name: Upload zip to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$TAG" "dist/${{ steps.stage.outputs.pkg_name }}.zip" --clobber
+          echo "Uploaded ${{ steps.stage.outputs.pkg_name }}.zip to release $TAG"
