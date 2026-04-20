@@ -23,6 +23,7 @@ public class Plugin : BaseUnityPlugin
     internal ConfigEntry<bool> CfgAutopilotEtaSync = null!;
     internal ConfigEntry<bool> CfgAutopilotArrivalSnap = null!;
     internal ConfigEntry<bool> CfgAutopilotFastDeposit = null!;
+    internal ConfigEntry<bool> CfgAutopilotFastFetch = null!;
 
     private Harmony _harmony = null!;
 
@@ -48,6 +49,11 @@ public class Plugin : BaseUnityPlugin
             "transfer, so successive items move on the next frame instead of after the vanilla " +
             "400/cargoCapacity seconds. Still one unit per cycle — full stack transfer is a " +
             "separate feature. Requires TimingEnabled.");
+        CfgAutopilotFastFetch = Config.Bind("Autopilot", "FastFetch", true,
+            "Zero the IdleManager cycle timer after each successful autopilot item fetch " +
+            "(global-inventory transfer or station-shop buy of ammo / warp fuel), so " +
+            "successive items move on the next frame instead of after the vanilla ~1–2 s " +
+            "(ammo) or 12 s (warp fuel) gap. Requires TimingEnabled.");
 
         _harmony = new Harmony(PluginGuid);
         _harmony.PatchAll(typeof(Patches.AutopilotTimingPatches));

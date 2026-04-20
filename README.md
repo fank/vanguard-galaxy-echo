@@ -16,8 +16,12 @@ that enhances ECHO — the in-game autopilot AI.
   station (or auto-selling materials), each transfer fires on the next frame
   instead of after the vanilla ~1–2 s per-item gap. A full cargo hold drains
   in a handful of frames.
+- **Autopilot fast-fetch** — mirror of fast-deposit for the reverse path.
+  When the autopilot pulls from global inventory or buys ammo / warp fuel
+  from a station shop, the next item fires on the following frame instead
+  of after the vanilla ~1–2 s (ammo) or 12 s (warp fuel) gap.
 
-All four toggles — master `TimingEnabled` plus the three features above —
+All five toggles — master `TimingEnabled` plus the four features above —
 live under `[Autopilot]` in `BepInEx/config/dev.fankserver.vgecho.cfg`.
 
 ## Requirements
@@ -60,5 +64,6 @@ Config file: `<game>/BepInEx/config/dev.fankserver.vgecho.cfg` (created on first
 | `[Autopilot] EtaSync`        | `true`  | While warping, drive the cycle from distance-based travel progress. Fill circle completes exactly on drop-out.  |
 | `[Autopilot] ArrivalSnap`    | `true`  | On final-waypoint arrival, zero the cycle so the next autonomous action fires immediately.                      |
 | `[Autopilot] FastDeposit`    | `true`  | After each autopilot cargo deposit or auto-sell, zero the cycle so successive items move on the next frame.     |
+| `[Autopilot] FastFetch`      | `true`  | After each autopilot global-inventory transfer or shop buy (ammo / warp fuel), zero the cycle so the next item fires on the next frame. |
 
 None of these patches change what the autopilot decides to do — only *when* it decides. Disable any feature independently via config; no rebuild or redeploy needed, just relaunch the game.
