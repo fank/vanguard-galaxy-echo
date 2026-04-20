@@ -1,69 +1,104 @@
 # Vanguard Galaxy Echo (VGEcho)
 
-BepInEx plugin for [Vanguard Galaxy](https://store.steampowered.com/app/3471800/)
-that enhances ECHO — the in-game autopilot AI.
+A BepInEx plugin for [Vanguard Galaxy](https://store.steampowered.com/app/3471800/) that enhances ECHO — the in-game autopilot AI. Makes the autopilot snappy instead of waiting up to 12 s between actions.
 
-## Current features
+- **ETA-sync** — while the ship is warping, the Autopilot side-tab's green progress circle tracks live distance-based travel progress instead of the vanilla 12 s loop. Completes exactly on drop-out.
+- **Arrival-snap** — on reaching the final waypoint, the next autonomous action fires on the following frame instead of after a 0–12 s residual wait.
+- **Fast-deposit** — unloading cargo at a station (or auto-selling materials) fires each transfer on the next frame instead of after the vanilla ~1–2 s per-item gap. A full cargo hold drains in a handful of frames.
+- **Fast-fetch** — mirror of fast-deposit for the reverse path. Pulling from global inventory or buying ammo / warp fuel fires the next item on the following frame instead of after ~1–2 s (ammo) or 12 s (warp fuel).
 
-- **Autopilot ETA-sync** — while the ship is warping, the green progress circle on
-  the Autopilot side-tab fills at the ship's distance-based travel progress
-  instead of running its vanilla 12-second cycle. Circle completes exactly on
-  drop-out.
-- **Autopilot arrival-snap** — when the ship reaches its final waypoint, the
-  IdleManager task cycle timer is zeroed so the next autonomous action fires
-  on the following frame instead of after a 0–12 s residual wait.
-- **Autopilot fast-deposit** — when the autopilot is unloading cargo at a
-  station (or auto-selling materials), each transfer fires on the next frame
-  instead of after the vanilla ~1–2 s per-item gap. A full cargo hold drains
-  in a handful of frames.
-- **Autopilot fast-fetch** — mirror of fast-deposit for the reverse path.
-  When the autopilot pulls from global inventory or buys ammo / warp fuel
-  from a station shop, the next item fires on the following frame instead
-  of after the vanilla ~1–2 s (ammo) or 12 s (warp fuel) gap.
+None of these change *what* the autopilot decides — only *when*.
 
-All five toggles — master `TimingEnabled` plus the four features above —
-live under `[Autopilot]` in `BepInEx/config/vgecho.cfg`.
+## Install
 
-## Requirements
+1. **Install BepInEx 5.x** — grab `BepInEx_win_x64_5.4.x.zip` from the [BepInEx releases](https://github.com/BepInEx/BepInEx/releases) and unzip it into your Vanguard Galaxy install folder (next to `VanguardGalaxy.exe`).
+2. **Launch the game once** so BepInEx creates its `BepInEx/plugins/` and `BepInEx/config/` subfolders, then close the game.
+3. **Download the VGEcho release** zip from [Releases](https://github.com/fank/vanguard-galaxy-echo/releases) (or Nexus Mods, once published).
+4. **Unzip** into `BepInEx/plugins/`. The zip contains a single `VGEcho/` folder that drops in cleanly:
+   ```
+   VanguardGalaxy/BepInEx/plugins/
+     VGEcho/
+       VGEcho.dll
+       README.md
+   ```
+5. **Launch the game.** Open the BepInEx console — you should see:
+   ```
+   [Info :Vanguard Galaxy Echo] Vanguard Galaxy Echo v0.1.0 loaded (4 patches)
+   ```
 
-- Vanguard Galaxy (Steam)
-- [BepInEx 5.x](https://github.com/BepInEx/BepInEx/releases) installed into the game folder
-- .NET SDK 8+ for building
+## Uninstall
 
-## Build + deploy (WSL)
+Delete the `BepInEx/plugins/VGEcho/` folder. Optionally also delete `BepInEx/config/vgecho.cfg` to reset saved settings.
+
+## Config
+
+BepInEx writes the config to `BepInEx/config/vgecho.cfg` on first launch. All toggles live under `[Autopilot]`:
+
+| Key             | Default | Purpose                                                                                                         |
+| --------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `TimingEnabled` | `true`  | Master toggle. When `false`, all timing tweaks are skipped and the vanilla cycle runs unchanged.                |
+| `EtaSync`       | `true`  | While warping, drive the cycle from distance-based travel progress. Fill circle completes exactly on drop-out.  |
+| `ArrivalSnap`   | `true`  | On final-waypoint arrival, zero the cycle so the next autonomous action fires immediately.                      |
+| `FastDeposit`   | `true`  | After each autopilot cargo deposit or auto-sell, zero the cycle so successive items move on the next frame.     |
+| `FastFetch`     | `true`  | After each autopilot global-inventory transfer or shop buy (ammo / warp fuel), zero the cycle so the next item fires on the next frame. |
+
+Disable any feature independently — no rebuild needed, just relaunch the game.
+
+## Troubleshooting
+
+**No load line in the BepInEx console**
+- Check that `BepInEx/plugins/VGEcho/VGEcho.dll` exists.
+- Enable the console: `BepInEx/config/BepInEx.cfg` → `[Logging.Console]` → `Enabled = true`.
+
+**Plugin loads but nothing happens during warp**
+- Autopilot has to be engaged (default hotkey `T`). Every patch is gated on `GamePlayer.current.autoPlay`; when autopilot is off, the vanilla cycle runs unchanged.
+- Confirm `TimingEnabled = true` and the individual feature toggle is `true` in `vgecho.cfg`.
+
+**`TypeInitializationException` on load**
+- Likely a game update renamed an internal field or method that VGEcho hooks. See "Known limitations" below. A rebuild against the new game version is needed.
+
+## Known limitations
+
+- **Game version drift** — VGEcho hooks private method names (`IdleManager.SetQuickerUpdateTimer`, `IdleManager.FetchItem`, `IdleManager.Update`, `TravelManager.TravelToNextWaypoint`) and compiler-generated backing-field literals (`<updateTimer>k__BackingField`, `<updateTimerBase>k__BackingField`). A patch that renames any of these breaks the plugin at load time. File an issue with the BepInEx console output and wait for a new VGEcho build.
+- **Full-stack transfer not implemented** — fast-deposit / fast-fetch still move one unit per cycle (20 for ammo, 20 for currency, 1 for everything else). They zero the *delay between* cycles, not the per-cycle quantity. Moving a full stack per cycle would require an IL transpiler on `IdleManager.FindActivity` and is tracked as future work.
+
+## Building from source
+
+Requires .NET SDK 8+. The Makefile targets WSL + a Steam install at `/mnt/c/Program Files (x86)/Steam/steamapps/common/Vanguard Galaxy`; override `GAME_DIR` if your install is elsewhere.
 
 ```bash
 make deploy
-```
-
-This:
-1. Symlinks the game's `Assembly-CSharp.dll` into `VGEcho/lib/` for compile-time references
-2. Builds the plugin
-3. Copies the DLL into `<game>/BepInEx/plugins/`
-
-If your Steam install is elsewhere, set `GAME_DIR` on the command line:
-
-```bash
+# or with a custom install:
 make deploy GAME_DIR="/mnt/d/SteamLibrary/steamapps/common/Vanguard Galaxy"
 ```
 
-## First-run verification
+This symlinks the game's `Assembly-CSharp.dll` into `VGEcho/lib/` for compile-time references, builds the plugin, and copies the DLL into `<game>/BepInEx/plugins/`.
 
-1. Launch the game once with BepInEx installed (creates `BepInEx/` subfolders)
-2. `make deploy`
-3. Launch the game, open the BepInEx console
-4. Expect a load line: `[Info :Vanguard Galaxy Echo] Vanguard Galaxy Echo v0.1.0 loaded`
+## Releasing (for maintainers)
 
-## Config reference
+Creating a GitHub Release auto-builds and uploads the zip via `.github/workflows/release.yml`. CI compiles `VGEcho.dll` against a **publicized stub** of `Assembly-CSharp.dll` committed at `VGEcho/lib/Assembly-CSharp.dll` (method signatures only — no game code). The real game assembly takes over at runtime via Mono's late binding.
 
-Config file: `<game>/BepInEx/config/vgecho.cfg` (created on first launch).
+```bash
+# One-time per game update — regenerate the publicized stub from your
+# current install and commit it. BepInEx-standard tool, MIT-licensed:
+dotnet tool install -g BepInEx.AssemblyPublicizer.Cli
+assembly-publicizer \
+  "$GAME_DIR/VanguardGalaxy_Data/Managed/Assembly-CSharp.dll" \
+  -o VGEcho/lib/Assembly-CSharp.dll
+git add VGEcho/lib/Assembly-CSharp.dll && git commit -m "chore: refresh publicized stub for game vX.Y"
 
-| Key                          | Default | Purpose                                                                                                         |
-| ---------------------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
-| `[Autopilot] TimingEnabled`  | `true`  | Master toggle. When `false`, all autopilot timing tweaks are skipped and the vanilla cycle runs unchanged.      |
-| `[Autopilot] EtaSync`        | `true`  | While warping, drive the cycle from distance-based travel progress. Fill circle completes exactly on drop-out.  |
-| `[Autopilot] ArrivalSnap`    | `true`  | On final-waypoint arrival, zero the cycle so the next autonomous action fires immediately.                      |
-| `[Autopilot] FastDeposit`    | `true`  | After each autopilot cargo deposit or auto-sell, zero the cycle so successive items move on the next frame.     |
-| `[Autopilot] FastFetch`      | `true`  | After each autopilot global-inventory transfer or shop buy (ammo / warp fuel), zero the cycle so the next item fires on the next frame. |
+# Tag + release
+gh release create v0.1.0 --title "v0.1.0" --notes "Initial release."
+```
 
-None of these patches change what the autopilot decides to do — only *when* it decides. Disable any feature independently via config; no rebuild or redeploy needed, just relaunch the game.
+To re-run on a failed release without recreating it: `gh workflow run release.yml -f tag=v0.1.0`.
+
+## Credits
+
+- **Vanguard Galaxy** by [Bat Roost Games](https://store.steampowered.com/developer/BatRoostGames/) — the game being modded
+- **BepInEx 5** — mod loader
+- **HarmonyX** — runtime method patching
+
+## License
+
+MIT. See [LICENSE](LICENSE).
