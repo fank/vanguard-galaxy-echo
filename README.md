@@ -22,7 +22,7 @@ that enhances ECHO — the in-game autopilot AI.
   of after the vanilla ~1–2 s (ammo) or 12 s (warp fuel) gap.
 
 All five toggles — master `TimingEnabled` plus the four features above —
-live under `[Autopilot]` in `BepInEx/config/dev.fankserver.vgecho.cfg`.
+live under `[Autopilot]` in `BepInEx/config/vgecho.cfg`.
 
 ## Requirements
 
@@ -56,7 +56,7 @@ make deploy GAME_DIR="/mnt/d/SteamLibrary/steamapps/common/Vanguard Galaxy"
 
 ## Config reference
 
-Config file: `<game>/BepInEx/config/dev.fankserver.vgecho.cfg` (created on first launch).
+Config file: `<game>/BepInEx/config/vgecho.cfg` (created on first launch).
 
 | Key                          | Default | Purpose                                                                                                         |
 | ---------------------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
