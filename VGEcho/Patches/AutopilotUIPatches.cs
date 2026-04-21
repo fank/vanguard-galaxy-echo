@@ -290,11 +290,7 @@ internal static class AutopilotUIPatches
             if (getValue() == isOn) return;
             setValue(isOn);
             Plugin.Instance.Config.Save();
-            Plugin.Log.LogInfo($"[autopilot-ui] {cloneName} toggled -> {isOn}");
         });
-
-        Plugin.Log.LogInfo(
-            $"[autopilot-ui] injected '{cloneName}' at anchored=({anchoredX}, {anchoredY}) initial={getValue()}");
     }
 
     /// <summary>

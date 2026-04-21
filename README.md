@@ -25,7 +25,7 @@ The first four change *when* the autopilot acts, never *what* it decides. The la
    ```
 5. **Launch the game.** Open the BepInEx console — you should see a load line ending with the number of Harmony patches applied, e.g.:
    ```
-   [Info :Vanguard Galaxy Echo] Vanguard Galaxy Echo v0.1.0 loaded (5 patches)
+   [Info :Vanguard Galaxy Echo] Vanguard Galaxy Echo v0.2.0 loaded (6 patches)
    ```
 
 ## Uninstall
