@@ -81,16 +81,22 @@ This symlinks the game's `Assembly-CSharp.dll` into `VGEcho/lib/` for compile-ti
 
 ## Releasing (for maintainers)
 
-Creating a GitHub Release auto-builds and uploads the zip via `.github/workflows/release.yml`. CI compiles `VGEcho.dll` against a **publicized stub** of `Assembly-CSharp.dll` committed at `VGEcho/lib/Assembly-CSharp.dll` (method signatures only — no game code). The real game assembly takes over at runtime via Mono's late binding.
+Creating a GitHub Release auto-builds and uploads the zip via `.github/workflows/release.yml`. CI compiles `VGEcho.dll` against **publicized stubs** committed at `VGEcho/lib/`:
+
+- `Assembly-CSharp.dll` — the game's code
+- `UnityEngine.UI.dll` — uGUI widgets (Toggle, Button) needed by the UI patches
+- `Unity.TextMeshPro.dll` — TMP_Text, used for UI labels
+
+Each stub is method signatures only — no IL bodies. The real runtime assemblies take over in-game via Mono's late binding.
 
 ```bash
-# One-time per game update — regenerate the publicized stub from your
-# current install and commit it. BepInEx-standard tool, MIT-licensed:
+# One-time per game update — regenerate the publicized stubs from your
+# current install and commit them. BepInEx-standard tool, MIT-licensed:
 dotnet tool install -g BepInEx.AssemblyPublicizer.Cli
-assembly-publicizer \
-  "$GAME_DIR/VanguardGalaxy_Data/Managed/Assembly-CSharp.dll" \
-  -o VGEcho/lib/Assembly-CSharp.dll
-git add VGEcho/lib/Assembly-CSharp.dll && git commit -m "chore: refresh publicized stub for game vX.Y"
+for dll in Assembly-CSharp.dll UnityEngine.UI.dll Unity.TextMeshPro.dll; do
+  assembly-publicizer "$GAME_DIR/VanguardGalaxy_Data/Managed/$dll" -o "VGEcho/lib/$dll"
+done
+git add VGEcho/lib/*.dll && git commit -m "chore: refresh publicized stubs for game vX.Y"
 
 # Tag + release
 gh release create v0.1.0 --title "v0.1.0" --notes "Initial release."

@@ -28,6 +28,20 @@
       <HintPath>lib/Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- UnityEngine.UI (uGUI widgets: Toggle, Button, Slider) lives in a separate
+         assembly from the UnityEngine.Modules NuGet meta-package, so we have to
+         reference it directly. Same publicize-and-commit pattern as Assembly-CSharp:
+         the stub carries signatures only, the real runtime takes over in-game. -->
+    <Reference Include="UnityEngine.UI">
+      <HintPath>lib/UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- TextMeshPro ships with Unity but isn't in UnityEngine.Modules either. Needed
+         for TMP_Text (the label on toggles and most other UI text in the game). -->
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>lib/Unity.TextMeshPro.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>

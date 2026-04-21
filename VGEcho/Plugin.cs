@@ -80,6 +80,7 @@ public class Plugin : BaseUnityPlugin
         _harmony = new Harmony(PluginGuid);
         _harmony.PatchAll(typeof(Patches.AutopilotTimingPatches));
         _harmony.PatchAll(typeof(Patches.AutopilotRefineryPatches));
+        _harmony.PatchAll(typeof(Patches.AutopilotUIPatches));
         Log.LogInfo($"{PluginName} v{PluginVersion} loaded ({_harmony.GetPatchedMethods().Count()} patches)");
     }
 

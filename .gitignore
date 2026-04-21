@@ -10,12 +10,18 @@ obj/
 
 # Plugin's compile-time references
 # - Assembly-CSharp.dll: publicized STUB of the game's assembly (method
-#   signatures only, no IL bodies). Committed so CI can build. Regenerate
-#   after game updates via:
-#     assembly-publicizer <game>/Assembly-CSharp.dll -o VGEcho/lib/Assembly-CSharp.dll
+#   signatures only, no IL bodies). Committed so CI can build.
+# - UnityEngine.UI.dll / Unity.TextMeshPro.dll: publicized Unity runtime
+#   stubs, required for UI patches (Toggle, TMP_Text). Also committed.
+# Regenerate all three after game updates via:
+#   assembly-publicizer <game>/Assembly-CSharp.dll     -o VGEcho/lib/Assembly-CSharp.dll
+#   assembly-publicizer <game>/UnityEngine.UI.dll      -o VGEcho/lib/UnityEngine.UI.dll
+#   assembly-publicizer <game>/Unity.TextMeshPro.dll   -o VGEcho/lib/Unity.TextMeshPro.dll
 VGEcho/lib/*.dll
 VGEcho/lib/*.pdb
 !VGEcho/lib/Assembly-CSharp.dll
+!VGEcho/lib/UnityEngine.UI.dll
+!VGEcho/lib/Unity.TextMeshPro.dll
 
 # Local overrides
 *.local
