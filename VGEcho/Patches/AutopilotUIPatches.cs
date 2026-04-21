@@ -1,5 +1,7 @@
+using System;
 using System.Linq;
 using System.Reflection;
+using BepInEx.Configuration;
 using Behaviour.UI.Side_Menu.SideTabs;
 using Behaviour.UI.Tooltip;
 using HarmonyLib;
@@ -13,10 +15,25 @@ namespace VGEcho.Patches;
 
 /// <summary>
 /// Runtime UI injection for the Autopilot side-tab. On each <see cref="Autopilot"/>
-/// <c>Awake</c>, clones the vanilla "Auto sell" row (toggle + label + ancillary
-/// text), reparents the clone next to the original in <c>Container</c>, and binds
-/// it to <see cref="Plugin.CfgAutopilotAutoRefine"/> so the in-game checkbox
-/// mirrors the BepInEx config entry.
+/// <c>Awake</c>, clones the vanilla "Auto sell" row for each of our opt-in
+/// behaviour toggles and binds the cloned Toggle to the corresponding BepInEx
+/// config entry:
+///   • <c>AutoRefine</c> — right column at NoTravel's y (below Auto-sell).
+///   • <c>RefineryRoute</c> ("Prefer refinery") — left column, row below AmmoMinutes.
+///   • <c>FastTransfers</c> — right column, same row as RefineryRoute. Master
+///     toggle that mirrors <see cref="Plugin.CfgAutopilotFastDeposit"/> and
+///     <see cref="Plugin.CfgAutopilotFastFetch"/> to the same value. Initial
+///     state shown is the AND of both (on only if both are on).
+///
+/// The observed Container layout is NOT a clean 2-column grid:
+///   • MiningLocationRow / RunMissions / PreferMissions / NoTravel / AmmoMinutes
+///     all have stretched anchors that make their RectTransforms span the full
+///     container width even though their visible content (toggle, slider) sits
+///     on the left half.
+///   • Loadout / AutoDetected / Autosell are tucked into the right half of the
+///     first three rows via anchoredPosition.x=300.
+///   • That leaves only one right-column cell empty (NoTravel's row) and
+///     a full empty row below AmmoMinutes — which is where our toggles go.
 ///
 /// A few non-obvious constraints the prefab forced on us:
 ///   • The cloned Toggle's <c>onValueChanged</c> carries prefab-serialised calls
@@ -26,17 +43,17 @@ namespace VGEcho.Patches;
 ///     silently continues to flip <c>autopilotSettings.autoSell</c>.
 ///   • <c>Container</c> has no <c>LayoutGroup</c>, so rows are free-positioned
 ///     by RectTransform and render order is sibling-order. The vanilla row's
-///     label RectTransform is 300px wide and spans across the 2-column grid
-///     (left column ends at x≈4783 in world coords, label starts at x≈4698), so
-///     its raycast rect extends into the left column. The Disable-Travel toggle
-///     is 160×32 (i.e. the entire left-column row), so clicks on that overhang
-///     hit <c>noTravelToggle</c> instead of our label. We fix this by
-///     <see cref="Transform.SetAsLastSibling"/>-ing the clone, making its label
-///     rect topmost in the raycast order; a no-op
-///     <see cref="LabelClickProxy"/> on the label then absorbs the click.
+///     label RectTransform is 300px wide and spans across the 2-column grid,
+///     so its raycast rect extends into the left-column's hit area. The
+///     Disable-Travel / Prioritize-homestation toggles are 160×32 (i.e. the
+///     entire left-column row), so clicks on the label's overhang hit the
+///     neighbouring left-column toggle instead of our label. We fix this by
+///     <see cref="Transform.SetAsLastSibling"/>-ing every clone so its label
+///     rect is topmost in the raycast order; a no-op <see cref="LabelClickProxy"/>
+///     on the label then absorbs the click.
 ///   • The row contains a <c>Translatable</c> MonoBehaviour that re-applies the
 ///     source translate key on every <c>OnEnable</c>, which would overwrite our
-///     "Auto refine" rename each time the tab reopens. We destroy it.
+///     label rename each time the tab reopens. We destroy it.
 ///   • The cloned <c>TooltipSource</c>'s body text still points at the
 ///     "@AutopilotAutoSell" key, so it's destroyed as well — no localised
 ///     replacement available.
@@ -44,8 +61,33 @@ namespace VGEcho.Patches;
 [HarmonyPatch(typeof(Autopilot), "Awake")]
 internal static class AutopilotUIPatches
 {
-    private const string CloneName = "vgecho_autoRefineRow";
-    private const string LabelText = "Auto refine";
+    private const string AutoRefineRowName = "vgecho_autoRefineRow";
+    private const string RefineryRouteRowName = "vgecho_refineryRouteRow";
+    private const string FastTransfersRowName = "vgecho_fastTransfersRow";
+
+    // Tooltip body strings use the game's #word# highlight convention — the
+    // regex in Translation.Translate replaces #text# with <color=#FFD100>text
+    // </color> (yellow), matching the vanilla "@Autopilot*Description" keys.
+    // Keep titles as plain text (the vanilla titles like "Run Missions" have
+    // no highlights).
+    private const string AutoRefineLabel = "Auto-refine on dock";
+    private const string AutoRefineTooltip =
+        "If enabled, #ECHO# will turn on the station's #Auto-Refine# toggle when docking at a " +
+        "station with a #refinery#, so pending ore refines passively.";
+
+    private const string RefineryRouteLabel = "Divert to refinery";
+    private const string RefineryRouteTooltip =
+        "If enabled, #ECHO# will divert to the nearest station with a #refinery# when cargo " +
+        "contains #ore# instead of returning to the #Home Station#.";
+
+    private const string FastTransfersLabel = "Fast transfers";
+    private const string FastTransfersTooltip =
+        "If enabled, #ECHO# will skip the cooldown between cargo transfers (deposit, auto-sell, " +
+        "fetch from global inventory, shop buy), so a full cargo hold moves in a handful of frames.";
+
+    // The source row's x (Autosell) is 300 — the right-column anchor. The
+    // left-column rows (Homestation, RunMissions, ...) sit at x=5.
+    private const float LeftColumnX = 5f;
 
     private static readonly AccessTools.FieldRef<Autopilot, Toggle> AutoSellToggleRef =
         AccessTools.FieldRefAccess<Autopilot, Toggle>("autoSellToggle");
@@ -60,98 +102,162 @@ internal static class AutopilotUIPatches
     {
         try
         {
-            InjectAutoRefineToggle(__instance);
+            InjectToggles(__instance);
         }
-        catch (System.Exception e)
+        catch (Exception e)
         {
             Plugin.Log.LogError($"[autopilot-ui] Awake postfix failed: {e}");
         }
     }
 
-    private static void InjectAutoRefineToggle(Autopilot panel)
+    private static void InjectToggles(Autopilot panel)
     {
-        var source = AutoSellToggleRef(panel);
-        if (source == null)
+        var sourceToggle = AutoSellToggleRef(panel);
+        if (sourceToggle == null)
         {
-            Plugin.Log.LogWarning("[autopilot-ui] autoSellToggle is null; skipping clone");
+            Plugin.Log.LogWarning("[autopilot-ui] autoSellToggle is null; skipping UI injection");
             return;
         }
 
         // The row we want to duplicate wraps the Toggle with its label/icon —
-        // one level up from the toggle itself (the toggle GameObject contains a
-        // Toggle component plus its own checkbox/checkmark children, but the
-        // sibling label lives on the row GameObject).
-        var row = source.transform.parent;
-        if (row == null)
+        // one level up from the toggle itself.
+        var sourceRow = sourceToggle.transform.parent;
+        if (sourceRow == null)
         {
             Plugin.Log.LogWarning("[autopilot-ui] autoSellToggle has no parent; aborting");
             return;
         }
         // Defensive: if a future prefab restructure puts the Toggle at the row
         // level itself, climb one more so we clone the enclosing row.
-        if (row.GetComponent<Toggle>() != null && row.parent != null)
+        if (sourceRow.GetComponent<Toggle>() != null && sourceRow.parent != null)
         {
-            row = row.parent;
+            sourceRow = sourceRow.parent;
         }
 
-        var insertParent = row.parent;
-        if (insertParent == null)
+        var container = sourceRow.parent;
+        if (container == null)
         {
-            Plugin.Log.LogWarning("[autopilot-ui] row has no parent; aborting");
+            Plugin.Log.LogWarning("[autopilot-ui] source row has no parent; aborting");
             return;
         }
 
-        // Idempotency: skip if a previous Awake on the same tab already added one.
-        if (insertParent.Find(CloneName) != null) return;
+        var sourceRT = sourceRow.GetComponent<RectTransform>();
+        float rowHeight = sourceRT != null ? sourceRT.rect.height : 30f;
+        float rowStep = rowHeight + 6f;
+        float rightColumnX = sourceRT != null ? sourceRT.anchoredPosition.x : 300f;
 
-        var cloneGO = Object.Instantiate(row.gameObject, insertParent);
-        cloneGO.name = CloneName;
+        // AutoRefine goes in the empty right-column cell at NoTravel's y.
+        float autoRefineY = sourceRT != null
+            ? sourceRT.anchoredPosition.y - rowStep
+            : -150f;
+        var cfg = Plugin.Instance;
+        InjectRow(container, sourceRow, AutoRefineRowName,
+            AutoRefineLabel, AutoRefineTooltip,
+            rightColumnX, autoRefineY, cfg.CfgAutopilotAutoRefine);
+
+        // Bottom row lives one step below the full-width AmmoMinutes slider.
+        // Look it up by name so we don't hardcode coordinates that may shift
+        // across game versions; fall back to two rows below Auto-sell.
+        var ammoRow = container.Find("AmmoMinutes");
+        var ammoRT = ammoRow != null ? ammoRow.GetComponent<RectTransform>() : null;
+        float bottomRowY = ammoRT != null
+            ? ammoRT.anchoredPosition.y - rowStep
+            : autoRefineY - rowStep;
+
+        // Left half of the bottom row: RefineryRoute.
+        InjectRow(container, sourceRow, RefineryRouteRowName,
+            RefineryRouteLabel, RefineryRouteTooltip,
+            LeftColumnX, bottomRowY, cfg.CfgAutopilotRefineryRoute);
+
+        // Right half of the bottom row: a single "Fast transfers" master toggle
+        // that mirrors both FastDeposit and FastFetch to the same value. Since
+        // those are independent configs, we show the initial state as the AND
+        // of both (i.e. "on" only if neither side is disabled) and write both
+        // simultaneously on click.
+        InjectRow(container, sourceRow, FastTransfersRowName,
+            FastTransfersLabel, FastTransfersTooltip,
+            rightColumnX, bottomRowY,
+            getValue: () => cfg.CfgAutopilotFastDeposit.Value && cfg.CfgAutopilotFastFetch.Value,
+            setValue: isOn =>
+            {
+                cfg.CfgAutopilotFastDeposit.Value = isOn;
+                cfg.CfgAutopilotFastFetch.Value = isOn;
+            });
+    }
+
+    /// <summary>
+    /// Convenience overload that binds the cloned Toggle directly to a
+    /// <see cref="ConfigEntry{Boolean}"/>. Reads from / writes to
+    /// <paramref name="config"/>.Value.
+    /// </summary>
+    private static void InjectRow(Transform container, Transform sourceRow,
+        string cloneName, string labelText, string tooltipText,
+        float anchoredX, float anchoredY,
+        ConfigEntry<bool> config)
+    {
+        InjectRow(container, sourceRow, cloneName, labelText, tooltipText,
+            anchoredX, anchoredY,
+            getValue: () => config.Value,
+            setValue: isOn => config.Value = isOn);
+    }
+
+    /// <summary>
+    /// Clone <paramref name="sourceRow"/> into <paramref name="container"/>,
+    /// reposition it at (<paramref name="anchoredX"/>, <paramref name="anchoredY"/>),
+    /// relabel the primary TMP_Text to <paramref name="labelText"/>, retarget
+    /// every cloned <see cref="TooltipSource"/> at our own title/body, scrub
+    /// all prefab-wired handlers, and drive the cloned Toggle via the supplied
+    /// getter/setter. Using lambdas (rather than a single ConfigEntry) lets one
+    /// toggle mirror multiple configs at once, like the FastTransfers master.
+    /// </summary>
+    private static void InjectRow(Transform container, Transform sourceRow,
+        string cloneName, string labelText, string tooltipText,
+        float anchoredX, float anchoredY,
+        Func<bool> getValue, Action<bool> setValue)
+    {
+        // Idempotency: if we already added one on a previous Awake of the same
+        // panel GameObject, don't stack a duplicate.
+        if (container.Find(cloneName) != null) return;
+
+        var cloneGO = UnityEngine.Object.Instantiate(sourceRow.gameObject, container);
+        cloneGO.name = cloneName;
         // Render order: sibling index decides who wins raycasts at overlap.
-        // See class docstring for the Disable-Travel overlap story.
+        // See class docstring for the left-column-overlap story.
         cloneGO.transform.SetAsLastSibling();
 
-        // Container has no LayoutGroup; Instantiate copies the source row's
-        // explicit anchoredPosition, so without this the clone lands directly
-        // on top of `Autosell`. Shift it down by one row-height + small gap.
-        var sourceRT = row.GetComponent<RectTransform>();
+        // Pin to the requested (x, y).
         var cloneRT = cloneGO.GetComponent<RectTransform>();
-        if (sourceRT != null && cloneRT != null)
+        if (cloneRT != null)
         {
-            var pos = cloneRT.anchoredPosition;
-            pos.y -= sourceRT.rect.height + 6f;
-            cloneRT.anchoredPosition = pos;
+            cloneRT.anchoredPosition = new Vector2(anchoredX, anchoredY);
         }
 
         var toggle = cloneGO.GetComponentInChildren<Toggle>(includeInactive: true);
         if (toggle == null)
         {
-            Plugin.Log.LogWarning("[autopilot-ui] cloned row has no Toggle; aborting");
-            Object.Destroy(cloneGO);
+            Plugin.Log.LogWarning($"[autopilot-ui] cloned row '{cloneName}' has no Toggle; aborting");
+            UnityEngine.Object.Destroy(cloneGO);
             return;
         }
 
         // Full scrub of the cloned Toggle's onValueChanged so clicks on the
-        // checkbox don't also fire Autopilot.ToggleAutoSell.
+        // checkbox don't also fire the source row's prefab-wired handler.
         ScrubUnityEvent(toggle.onValueChanged);
 
-        // The Autosell row has more than one TMP_Text — a primary label before
-        // the checkbox and an empty placeholder inside the Toggle prefab. Rename
-        // only the first non-empty TMP_Text (primary label) and disable raycast
-        // on the rest so they can't intercept anything.
+        // Rename the primary (first non-empty) TMP_Text; disable raycast on the
+        // rest so they can't intercept anything. Attach LabelClickProxy so
+        // clicks on the label have a no-op handler here rather than bubbling.
         var clonedTexts = cloneGO.GetComponentsInChildren<TMP_Text>(includeInactive: true);
         var primary = clonedTexts.FirstOrDefault(t => !string.IsNullOrEmpty(t.text));
         if (primary != null)
         {
-            primary.text = LabelText;
-            // Attach LabelClickProxy so clicks on the label's raycast rect have
-            // a definite no-op handler and cannot bubble to a parent handler
-            // (e.g. SideTabAutopilot, which would flip the autoPlay master).
+            primary.text = labelText;
             var proxy = primary.gameObject.AddComponent<LabelClickProxy>();
             proxy.target = toggle;
         }
         else
         {
-            Plugin.Log.LogWarning("[autopilot-ui] no TMP_Text with non-empty text in clone; label unchanged");
+            Plugin.Log.LogWarning($"[autopilot-ui] no TMP_Text with non-empty text in clone '{cloneName}'");
         }
         foreach (var text in clonedTexts)
         {
@@ -165,38 +271,38 @@ internal static class AutopilotUIPatches
         // enable — would overwrite our rename when the tab is re-opened.
         foreach (var translatable in cloneGO.GetComponentsInChildren<Behaviour.Util.Translatable>(includeInactive: true))
         {
-            Object.Destroy(translatable);
+            UnityEngine.Object.Destroy(translatable);
         }
-        // Tooltip body still points at the "Auto sell" key; no localised
-        // "Auto refine" equivalent, so drop it entirely.
+        // The source row ships TooltipSource on both the label and the Toggle
+        // (so hovering anywhere on the row shows the same tooltip). Retarget
+        // each of them at our own title + body. TooltipSource accepts raw
+        // strings — Translation.TranslateOnly returns the input unchanged when
+        // it doesn't start with '@', so plain English just renders as-is.
         foreach (var tooltip in cloneGO.GetComponentsInChildren<TooltipSource>(includeInactive: true))
         {
-            Object.Destroy(tooltip);
+            tooltip.Title = labelText;
+            tooltip.BodyText = tooltipText;
         }
 
-        toggle.SetIsOnWithoutNotify(Plugin.Instance.CfgAutopilotAutoRefine.Value);
+        toggle.SetIsOnWithoutNotify(getValue());
         toggle.onValueChanged.AddListener(isOn =>
         {
-            if (Plugin.Instance.CfgAutopilotAutoRefine.Value == isOn) return;
-            Plugin.Instance.CfgAutopilotAutoRefine.Value = isOn;
+            if (getValue() == isOn) return;
+            setValue(isOn);
             Plugin.Instance.Config.Save();
-            Plugin.Log.LogInfo($"[autopilot-ui] AutoRefine toggled -> {isOn}");
+            Plugin.Log.LogInfo($"[autopilot-ui] {cloneName} toggled -> {isOn}");
         });
 
         Plugin.Log.LogInfo(
-            $"[autopilot-ui] AutoRefine row injected at '{insertParent.name}/{cloneGO.name}' " +
-            $"(sibling of '{row.name}'), value={Plugin.Instance.CfgAutopilotAutoRefine.Value}");
+            $"[autopilot-ui] injected '{cloneName}' at anchored=({anchoredX}, {anchoredY}) initial={getValue()}");
     }
 
     /// <summary>
     /// Wipe both runtime listeners and prefab-serialised persistent calls from
     /// a UnityEvent. The public <c>RemoveAllListeners</c> only clears runtime
     /// listeners; persistent calls survive and keep firing their original
-    /// targets (e.g. the cloned Toggle's onValueChanged would still call
-    /// <c>Autopilot.ToggleAutoSell</c> and flip <c>autopilotSettings.autoSell</c>
-    /// whenever the user clicked our new checkbox). Reach into
-    /// <c>UnityEventBase.m_PersistentCalls</c> and clear the internal list to
-    /// nuke them fully.
+    /// targets. Reach into <c>UnityEventBase.m_PersistentCalls</c> and clear
+    /// the internal list to nuke them fully.
     /// </summary>
     private static void ScrubUnityEvent(UnityEventBase evt)
     {
