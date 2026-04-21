@@ -24,6 +24,9 @@ public class Plugin : BaseUnityPlugin
     internal ConfigEntry<bool> CfgAutopilotArrivalSnap = null!;
     internal ConfigEntry<bool> CfgAutopilotFastDeposit = null!;
     internal ConfigEntry<bool> CfgAutopilotFastFetch = null!;
+    internal ConfigEntry<bool> CfgAutopilotRefineryRoute = null!;
+    internal ConfigEntry<int> CfgAutopilotRefineryMaxHops = null!;
+    internal ConfigEntry<bool> CfgAutopilotAutoRefine = null!;
 
     private Harmony _harmony = null!;
 
@@ -54,9 +57,29 @@ public class Plugin : BaseUnityPlugin
             "(global-inventory transfer or station-shop buy of ammo / warp fuel), so " +
             "successive items move on the next frame instead of after the vanilla ~1–2 s " +
             "(ammo) or 12 s (warp fuel) gap. Requires TimingEnabled.");
+        CfgAutopilotRefineryRoute = Config.Bind("Autopilot", "RefineryRoute", false,
+            "When the autopilot would fly back to your home station with a cargo hold containing ore, " +
+            "instead divert to the nearest friendly dockable station within RefineryMaxHops that has " +
+            "a refinery. Saves travel time when mining far from home. Only engages when cargo contains " +
+            "at least one ore item AND your home station has no refinery AND no idle mission targets a " +
+            "station. Falls back to vanilla home-routing if no refinery station is within range. " +
+            "Independent of TimingEnabled.");
+        CfgAutopilotRefineryMaxHops = Config.Bind("Autopilot", "RefineryMaxHops", 2,
+            new ConfigDescription(
+                "Maximum jump-gate hops to search for a refinery station when RefineryRoute is enabled. " +
+                "Larger values search further but take longer to travel. Default 2 matches the vanilla " +
+                "mission-station search range.",
+                new AcceptableValueRange<int>(1, 10)));
+        CfgAutopilotAutoRefine = Config.Bind("Autopilot", "AutoRefine", false,
+            "When the autopilot arrives at a station that has a refinery, flip the refinery's Auto-Refine " +
+            "toggle on. The station will then automatically queue refinement jobs for ore in material " +
+            "storage (and the ship's cargo while docked), up to the refinery's max-jobs limit and while " +
+            "credits allow. The setting sticks per-station and can still be toggled manually in the " +
+            "refinery UI. Independent of TimingEnabled.");
 
         _harmony = new Harmony(PluginGuid);
         _harmony.PatchAll(typeof(Patches.AutopilotTimingPatches));
+        _harmony.PatchAll(typeof(Patches.AutopilotRefineryPatches));
         Log.LogInfo($"{PluginName} v{PluginVersion} loaded ({_harmony.GetPatchedMethods().Count()} patches)");
     }
 

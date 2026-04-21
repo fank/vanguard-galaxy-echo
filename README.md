@@ -6,8 +6,10 @@ A BepInEx plugin for [Vanguard Galaxy](https://store.steampowered.com/app/347180
 - **Arrival-snap** — on reaching the final waypoint, the next autonomous action fires on the following frame instead of after a 0–12 s residual wait.
 - **Fast-deposit** — unloading cargo at a station (or auto-selling materials) fires each transfer on the next frame instead of after the vanilla ~1–2 s per-item gap. A full cargo hold drains in a handful of frames.
 - **Fast-fetch** — mirror of fast-deposit for the reverse path. Pulling from global inventory or buying ammo / warp fuel fires the next item on the following frame instead of after ~1–2 s (ammo) or 12 s (warp fuel).
+- **Refinery routing** *(opt-in)* — when the autopilot would fly home with ore in cargo and home has no refinery, divert to the nearest friendly station with one. Saves the round-trip when mining far from base.
+- **Auto-refine on arrival** *(opt-in)* — when the autopilot docks at a station with a refinery, flip that refinery's Auto-Refine toggle on so pending ore refines passively while you're there.
 
-None of these change *what* the autopilot decides — only *when*.
+The first four change *when* the autopilot acts, never *what* it decides. The last two opt-in toggles do change routing and station behavior; both default off so existing installs stay on vanilla decisions.
 
 ## Install
 
@@ -21,9 +23,9 @@ None of these change *what* the autopilot decides — only *when*.
        VGEcho.dll
        README.md
    ```
-5. **Launch the game.** Open the BepInEx console — you should see:
+5. **Launch the game.** Open the BepInEx console — you should see a load line ending with the number of Harmony patches applied, e.g.:
    ```
-   [Info :Vanguard Galaxy Echo] Vanguard Galaxy Echo v0.1.0 loaded (4 patches)
+   [Info :Vanguard Galaxy Echo] Vanguard Galaxy Echo v0.1.0 loaded (5 patches)
    ```
 
 ## Uninstall
@@ -34,15 +36,18 @@ Delete the `BepInEx/plugins/VGEcho/` folder. Optionally also delete `BepInEx/con
 
 BepInEx writes the config to `BepInEx/config/vgecho.cfg` on first launch. All toggles live under `[Autopilot]`:
 
-| Key             | Default | Purpose                                                                                                         |
-| --------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
-| `TimingEnabled` | `true`  | Master toggle. When `false`, all timing tweaks are skipped and the vanilla cycle runs unchanged.                |
-| `EtaSync`       | `true`  | While warping, drive the cycle from distance-based travel progress. Fill circle completes exactly on drop-out.  |
-| `ArrivalSnap`   | `true`  | On final-waypoint arrival, zero the cycle so the next autonomous action fires immediately.                      |
-| `FastDeposit`   | `true`  | After each autopilot cargo deposit or auto-sell, zero the cycle so successive items move on the next frame.     |
-| `FastFetch`     | `true`  | After each autopilot global-inventory transfer or shop buy (ammo / warp fuel), zero the cycle so the next item fires on the next frame. |
+| Key                | Default | Purpose                                                                                                                                            |
+| ------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TimingEnabled`    | `true`  | Master toggle for the four timing tweaks below. When `false`, all timing tweaks are skipped and the vanilla cycle runs unchanged.                  |
+| `EtaSync`          | `true`  | While warping, drive the cycle from distance-based travel progress. Fill circle completes exactly on drop-out.                                     |
+| `ArrivalSnap`      | `true`  | On final-waypoint arrival, zero the cycle so the next autonomous action fires immediately.                                                         |
+| `FastDeposit`      | `true`  | After each autopilot cargo deposit or auto-sell, zero the cycle so successive items move on the next frame.                                        |
+| `FastFetch`        | `true`  | After each autopilot global-inventory transfer or shop buy (ammo / warp fuel), zero the cycle so the next item fires on the next frame.            |
+| `RefineryRoute`    | `false` | When cargo contains ore and the autopilot would fly back to your home station (and home has no refinery), divert to the nearest station that does. |
+| `RefineryMaxHops`  | `2`     | Maximum jump-gate hops to search for a refinery station. Matches the vanilla mission-station search range. Accepts `1`–`10`.                       |
+| `AutoRefine`       | `false` | On autopilot arrival at a station with a refinery, enable that refinery's Auto-Refine toggle. Setting sticks per-station.                          |
 
-Disable any feature independently — no rebuild needed, just relaunch the game.
+Disable any feature independently — no rebuild needed, just relaunch the game. The four timing tweaks are all-on by default; the two routing tweaks are opt-in because they change what ECHO decides, not just when.
 
 ## Troubleshooting
 
@@ -59,7 +64,7 @@ Disable any feature independently — no rebuild needed, just relaunch the game.
 
 ## Known limitations
 
-- **Game version drift** — VGEcho hooks private method names (`IdleManager.SetQuickerUpdateTimer`, `IdleManager.FetchItem`, `IdleManager.Update`, `TravelManager.TravelToNextWaypoint`) and compiler-generated backing-field literals (`<updateTimer>k__BackingField`, `<updateTimerBase>k__BackingField`). A patch that renames any of these breaks the plugin at load time. File an issue with the BepInEx console output and wait for a new VGEcho build.
+- **Game version drift** — VGEcho hooks private method names (`IdleManager.SetQuickerUpdateTimer`, `IdleManager.FetchItem`, `IdleManager.Update`, `IdleManager.IdleTravelToSpaceStation`, `TravelManager.TravelToNextWaypoint`), a private field literal (`IdleManager.idleTravelTarget`), and compiler-generated backing-field literals (`<updateTimer>k__BackingField`, `<updateTimerBase>k__BackingField`). A patch that renames any of these breaks the plugin at load time. File an issue with the BepInEx console output and wait for a new VGEcho build.
 - **Full-stack transfer not implemented** — fast-deposit / fast-fetch still move one unit per cycle (20 for ammo, 20 for currency, 1 for everything else). They zero the *delay between* cycles, not the per-cycle quantity. Moving a full stack per cycle would require an IL transpiler on `IdleManager.FindActivity` and is tracked as future work.
 
 ## Building from source
