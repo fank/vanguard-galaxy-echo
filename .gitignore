@@ -14,9 +14,13 @@ obj/
 # - UnityEngine.UI.dll / Unity.TextMeshPro.dll: publicized Unity runtime
 #   stubs, required for UI patches (Toggle, TMP_Text). Also committed.
 # Regenerate all three after game updates via:
-#   assembly-publicizer <game>/Assembly-CSharp.dll     -o VGEcho/lib/Assembly-CSharp.dll
-#   assembly-publicizer <game>/UnityEngine.UI.dll      -o VGEcho/lib/UnityEngine.UI.dll
-#   assembly-publicizer <game>/Unity.TextMeshPro.dll   -o VGEcho/lib/Unity.TextMeshPro.dll
+#   assembly-publicizer --strip <game>/Assembly-CSharp.dll     -o VGEcho/lib/Assembly-CSharp.dll
+#   assembly-publicizer --strip <game>/UnityEngine.UI.dll      -o VGEcho/lib/UnityEngine.UI.dll
+#   assembly-publicizer --strip <game>/Unity.TextMeshPro.dll   -o VGEcho/lib/Unity.TextMeshPro.dll
+# --strip is REQUIRED: it replaces every method body with `throw null;` so the
+# committed DLL carries only type metadata — no game logic, no Unity runtime
+# code. Running the tool WITHOUT --strip leaves the full proprietary IL intact,
+# which we can't legally redistribute.
 VGEcho/lib/*.dll
 VGEcho/lib/*.pdb
 !VGEcho/lib/Assembly-CSharp.dll

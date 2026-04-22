@@ -45,7 +45,7 @@ jobs:
           for stub in Assembly-CSharp.dll UnityEngine.UI.dll Unity.TextMeshPro.dll; do
             path="VGEcho/lib/$stub"
             if [ ! -s "$path" ]; then
-              echo "::error::$path is missing or empty. Regenerate via 'assembly-publicizer <game>/$stub -o $path' and commit."
+              echo "::error::$path is missing or empty. Regenerate via 'assembly-publicizer --strip <game>/$stub -o $path' and commit. (--strip is required.)"
               missing=1
             else
               echo "Publicized reference present: $path ($(du -h "$path" | cut -f1))"

@@ -91,10 +91,13 @@ Each stub is method signatures only — no IL bodies. The real runtime assemblie
 
 ```bash
 # One-time per game update — regenerate the publicized stubs from your
-# current install and commit them. BepInEx-standard tool, MIT-licensed:
+# current install and commit them. BepInEx-standard tool, MIT-licensed.
+# --strip is REQUIRED: it rewrites every method body to `throw null;` so the
+# committed file carries only type metadata. Running without --strip ships
+# the full proprietary game IL, which is a copyright problem.
 dotnet tool install -g BepInEx.AssemblyPublicizer.Cli
 for dll in Assembly-CSharp.dll UnityEngine.UI.dll Unity.TextMeshPro.dll; do
-  assembly-publicizer "$GAME_DIR/VanguardGalaxy_Data/Managed/$dll" -o "VGEcho/lib/$dll"
+  assembly-publicizer --strip "$GAME_DIR/VanguardGalaxy_Data/Managed/$dll" -o "VGEcho/lib/$dll"
 done
 git add VGEcho/lib/*.dll && git commit -m "chore: refresh publicized stubs for game vX.Y"
 
