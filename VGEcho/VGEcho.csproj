@@ -20,7 +20,13 @@
     <PackageReference Include="BepInEx.Core" Version="5.*" />
     <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />
     <PackageReference Include="UnityEngine.Modules" Version="6000.2.6" IncludeAssets="compile" />
-    <PackageReference Include="HarmonyX" Version="2.16.*" />
+    <!-- Pinned to 2.10.x: BepInEx 5 ships HarmonyX 2.10, and 2.16 adds a
+         transitive dep on MonoMod.Backports that BepInEx 5 doesn't load at
+         runtime (FileNotFoundException on plugin startup). The release
+         workflow only ships VGEcho.dll, so the MonoMod runtime DLLs
+         wouldn't go along anyway. Dependabot is instructed to leave
+         HarmonyX alone until BepInEx 5 bumps its bundled version. -->
+    <PackageReference Include="HarmonyX" Version="2.10.*" />
   </ItemGroup>
 
   <ItemGroup>
