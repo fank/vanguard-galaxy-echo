@@ -14,7 +14,7 @@ public class Plugin : BaseUnityPlugin
     public const string PluginName = "Vanguard Galaxy Echo";
     // BepInEx parses PluginVersion through System.Version which rejects SemVer
     // pre-release suffixes, so stick to the plain N.N.N form.
-    public const string PluginVersion = "0.2.0";
+    public const string PluginVersion = "0.3.0";
 
     internal static Plugin Instance { get; private set; } = null!;
     internal static ManualLogSource Log { get; private set; } = null!;
@@ -22,8 +22,7 @@ public class Plugin : BaseUnityPlugin
     internal ConfigEntry<bool> CfgAutopilotTiming = null!;
     internal ConfigEntry<bool> CfgAutopilotEtaSync = null!;
     internal ConfigEntry<bool> CfgAutopilotArrivalSnap = null!;
-    internal ConfigEntry<bool> CfgAutopilotFastDeposit = null!;
-    internal ConfigEntry<bool> CfgAutopilotFastFetch = null!;
+    internal ConfigEntry<Patches.StackDepositMode> CfgAutopilotStackDepositMode = null!;
     internal ConfigEntry<bool> CfgAutopilotRefineryRoute = null!;
     internal ConfigEntry<int> CfgAutopilotRefineryMaxHops = null!;
     internal ConfigEntry<bool> CfgAutopilotAutoRefine = null!;
@@ -47,16 +46,29 @@ public class Plugin : BaseUnityPlugin
             "When the ship reaches its final waypoint, zero the IdleManager cycle timer so the " +
             "next task fires on the following Update tick instead of waiting up to 12s. Covers " +
             "jump-gate transitions where ETA is unavailable. Requires TimingEnabled.");
-        CfgAutopilotFastDeposit = Config.Bind("Autopilot", "FastDeposit", true,
-            "Zero the IdleManager cycle timer after each autopilot cargo deposit or auto-sell " +
-            "transfer, so successive items move on the next frame instead of after the vanilla " +
-            "400/cargoCapacity seconds. Still one unit per cycle — full stack transfer is a " +
-            "separate feature. Requires TimingEnabled.");
-        CfgAutopilotFastFetch = Config.Bind("Autopilot", "FastFetch", true,
-            "Zero the IdleManager cycle timer after each successful autopilot item fetch " +
-            "(global-inventory transfer or station-shop buy of ammo / warp fuel), so " +
-            "successive items move on the next frame instead of after the vanilla ~1–2 s " +
-            "(ammo) or 12 s (warp fuel) gap. Requires TimingEnabled.");
+        CfgAutopilotStackDepositMode = Config.Bind("Autopilot", "StackDepositMode", Patches.StackDepositMode.Tiered,
+            new ConfigDescription(
+                "Controls how each autopilot deposit cycle moves cargo (non-ammo / non-currency " +
+                "items only — ammo and currency keep their vanilla per-cycle batches). Cycle " +
+                "cadence is unchanged in all modes (still 400/cargoCapacity seconds, still gated " +
+                "by ship-progression and the Prompt Engineering skill tree). Per-tick amount is " +
+                "capped by destination free space.\n\n" +
+                "Mastery is granted automatically by every autopilot tick — no skill points " +
+                "required — and is visible in the skill tree UI under the Engineering specialisation.\n\n" +
+                "  • Off — pure vanilla. ECHO deposits one unit per tick.\n\n" +
+                "  • Tiered (default) — per-tick amount scales with autopilot mastery, mirroring " +
+                "vanilla's milestonesMastery tier cadence (every 10 levels). Frames stack-deposit " +
+                "as a developing capability consistent with the Prompt Engineering doctrine:\n" +
+                "        Mastery  0–9   → 1 unit/tick (vanilla)\n" +
+                "        Mastery 10–19  → 25% of stack/tick (min 5)\n" +
+                "        Mastery 20–29  → 50% of stack/tick (min 10)\n" +
+                "        Mastery 30–39  → 75% of stack/tick (min 25)\n" +
+                "        Mastery 40+    → full stack/tick\n\n" +
+                "  • Always — full stack from level 0. Pure quality-of-life override that " +
+                "ignores the progression curve. Recommended for players who installed the mod " +
+                "specifically to skip vanilla cargo drain.\n\n" +
+                "The mastery badge tooltip in the skill tree UI shows the current per-tick " +
+                "amount and the next tier threshold while Tiered is active."));
         CfgAutopilotRefineryRoute = Config.Bind("Autopilot", "RefineryRoute", false,
             "When the autopilot would fly back to your home station with a cargo hold containing ore, " +
             "instead divert to the nearest friendly dockable station within RefineryMaxHops that has " +
@@ -79,6 +91,7 @@ public class Plugin : BaseUnityPlugin
 
         _harmony = new Harmony(PluginGuid);
         _harmony.PatchAll(typeof(Patches.AutopilotTimingPatches));
+        _harmony.PatchAll(typeof(Patches.AutopilotStackPatches));
         _harmony.PatchAll(typeof(Patches.AutopilotRefineryPatches));
         _harmony.PatchAll(typeof(Patches.AutopilotUIPatches));
         Log.LogInfo($"{PluginName} v{PluginVersion} loaded ({_harmony.GetPatchedMethods().Count()} patches)");

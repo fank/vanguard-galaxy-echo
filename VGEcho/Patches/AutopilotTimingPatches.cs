@@ -78,61 +78,6 @@ internal static class AutopilotTimingPatches
     }
 
     /// <summary>
-    /// Postfix on the private <c>IdleManager.SetQuickerUpdateTimer</c>. The
-    /// vanilla helper sets <c>updateTimer = 400f / cargoCapacity</c>, giving
-    /// a ~1–2 s gap between consecutive cargo deposits (and auto-sells). When
-    /// the player is on autopilot and fast-deposit is enabled, we overwrite
-    /// that with 0 so the next <see cref="IdleManager.Update"/> tick calls
-    /// <c>FindActivity</c> again on the very next frame. A full cargo hold
-    /// drains in a handful of frames instead of minutes.
-    ///
-    /// Note: per-cycle quantity is unchanged (still one unit per cycle for
-    /// regular items, 20/mag-size for ammo, 20 for currency). Making each
-    /// cycle transfer the full stack is a separate feature that requires an
-    /// IL transpiler on <c>IdleManager.FindActivity</c>.
-    /// </summary>
-    [HarmonyPostfix]
-    [HarmonyPatch(typeof(IdleManager), "SetQuickerUpdateTimer")]
-    private static void SetQuickerUpdateTimer_Postfix(IdleManager __instance)
-    {
-        if (!Plugin.Instance.CfgAutopilotTiming.Value) return;
-        if (!Plugin.Instance.CfgAutopilotFastDeposit.Value) return;
-
-        var player = GamePlayer.current;
-        if (player == null || !player.autoPlay) return;
-
-        Plugin.Log.LogDebug("[autopilot-timing] fast-deposit: zeroing updateTimer");
-        UpdateTimerRef(__instance) = 0f;
-    }
-
-    /// <summary>
-    /// Postfix on the private <c>IdleManager.FetchItem</c>. The vanilla helper
-    /// pulls items from global inventory (<c>@IdleTransferItem</c>) or buys
-    /// them from the station shop (<c>@IdleBuyItem</c>). Unlike deposit, it
-    /// does not itself call <c>SetQuickerUpdateTimer</c>: ammo-fetch callers
-    /// inline <c>updateTimer = 400/cargoCapacity</c> (~1–2 s per item), while
-    /// warp-fuel fetches inherit the full 12 s cycle. When the player is on
-    /// autopilot, fast-fetch is enabled, and the fetch succeeded, we zero the
-    /// cycle timer so the next <see cref="IdleManager.Update"/> tick fires on
-    /// the following frame — the station-shop buy loop drains at the same
-    /// frame-rate cadence as fast-deposit.
-    /// </summary>
-    [HarmonyPostfix]
-    [HarmonyPatch(typeof(IdleManager), "FetchItem")]
-    private static void FetchItem_Postfix(IdleManager __instance, bool __result)
-    {
-        if (!Plugin.Instance.CfgAutopilotTiming.Value) return;
-        if (!Plugin.Instance.CfgAutopilotFastFetch.Value) return;
-        if (!__result) return;
-
-        var player = GamePlayer.current;
-        if (player == null || !player.autoPlay) return;
-
-        Plugin.Log.LogDebug("[autopilot-timing] fast-fetch: zeroing updateTimer");
-        UpdateTimerRef(__instance) = 0f;
-    }
-
-    /// <summary>
     /// Postfix on <see cref="IdleManager.Update"/>. Runs every frame. When the
     /// player is on autopilot and <see cref="TravelManager.isWarping"/> is
     /// true, overwrite <c>updateTimer</c> and <c>updateTimerBase</c> so the
