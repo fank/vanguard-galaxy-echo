@@ -19,11 +19,7 @@ namespace VGEcho.Patches;
 /// behaviour toggles and binds the cloned Toggle to the corresponding BepInEx
 /// config entry:
 ///   • <c>AutoRefine</c> — right column at NoTravel's y (below Auto-sell).
-///   • <c>RefineryRoute</c> ("Prefer refinery") — left column, row below AmmoMinutes.
-///   • <c>FastTransfers</c> — right column, same row as RefineryRoute. Master
-///     toggle that mirrors <see cref="Plugin.CfgAutopilotFastDeposit"/> and
-///     <see cref="Plugin.CfgAutopilotFastFetch"/> to the same value. Initial
-///     state shown is the AND of both (on only if both are on).
+///   • <c>RefineryRoute</c> ("Divert to refinery") — left column, row below AmmoMinutes.
 ///
 /// The observed Container layout is NOT a clean 2-column grid:
 ///   • MiningLocationRow / RunMissions / PreferMissions / NoTravel / AmmoMinutes
@@ -63,7 +59,6 @@ internal static class AutopilotUIPatches
 {
     private const string AutoRefineRowName = "vgecho_autoRefineRow";
     private const string RefineryRouteRowName = "vgecho_refineryRouteRow";
-    private const string FastTransfersRowName = "vgecho_fastTransfersRow";
 
     // Tooltip body strings use the game's #word# highlight convention — the
     // regex in Translation.Translate replaces #text# with <color=#FFD100>text
@@ -79,11 +74,6 @@ internal static class AutopilotUIPatches
     private const string RefineryRouteTooltip =
         "If enabled, #ECHO# will divert to the nearest station with a #refinery# when cargo " +
         "contains #ore# instead of returning to the #Home Station#.";
-
-    private const string FastTransfersLabel = "Fast transfers";
-    private const string FastTransfersTooltip =
-        "If enabled, #ECHO# will skip the cooldown between cargo transfers (deposit, auto-sell, " +
-        "fetch from global inventory, shop buy), so a full cargo hold moves in a handful of frames.";
 
     // The source row's x (Autosell) is 300 — the right-column anchor. The
     // left-column rows (Homestation, RunMissions, ...) sit at x=5.
@@ -168,21 +158,6 @@ internal static class AutopilotUIPatches
         InjectRow(container, sourceRow, RefineryRouteRowName,
             RefineryRouteLabel, RefineryRouteTooltip,
             LeftColumnX, bottomRowY, cfg.CfgAutopilotRefineryRoute);
-
-        // Right half of the bottom row: a single "Fast transfers" master toggle
-        // that mirrors both FastDeposit and FastFetch to the same value. Since
-        // those are independent configs, we show the initial state as the AND
-        // of both (i.e. "on" only if neither side is disabled) and write both
-        // simultaneously on click.
-        InjectRow(container, sourceRow, FastTransfersRowName,
-            FastTransfersLabel, FastTransfersTooltip,
-            rightColumnX, bottomRowY,
-            getValue: () => cfg.CfgAutopilotFastDeposit.Value && cfg.CfgAutopilotFastFetch.Value,
-            setValue: isOn =>
-            {
-                cfg.CfgAutopilotFastDeposit.Value = isOn;
-                cfg.CfgAutopilotFastFetch.Value = isOn;
-            });
     }
 
     /// <summary>
@@ -208,7 +183,7 @@ internal static class AutopilotUIPatches
     /// every cloned <see cref="TooltipSource"/> at our own title/body, scrub
     /// all prefab-wired handlers, and drive the cloned Toggle via the supplied
     /// getter/setter. Using lambdas (rather than a single ConfigEntry) lets one
-    /// toggle mirror multiple configs at once, like the FastTransfers master.
+    /// toggle mirror multiple configs at once if a future feature needs it.
     /// </summary>
     private static void InjectRow(Transform container, Transform sourceRow,
         string cloneName, string labelText, string tooltipText,

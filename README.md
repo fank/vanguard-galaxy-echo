@@ -1,15 +1,14 @@
 # Vanguard Galaxy Echo (VGEcho)
 
-A BepInEx plugin for [Vanguard Galaxy](https://store.steampowered.com/app/3471800/) that enhances ECHO — the in-game autopilot AI. Makes the autopilot snappy instead of waiting up to 12 s between actions.
+A BepInEx plugin for [Vanguard Galaxy](https://store.steampowered.com/app/3471800/) that enhances ECHO — the in-game autopilot AI. Surgical changes to where vanilla's per-tick autopilot loop creates avoidable friction, without bulldozing the Prompt Engineering skill tree's intentional cadence costs.
 
 - **ETA-sync** — while the ship is warping, the Autopilot side-tab's green progress circle tracks live distance-based travel progress instead of the vanilla 12 s loop. Completes exactly on drop-out.
 - **Arrival-snap** — on reaching the final waypoint, the next autonomous action fires on the following frame instead of after a 0–12 s residual wait.
-- **Fast-deposit** — unloading cargo at a station (or auto-selling materials) fires each transfer on the next frame instead of after the vanilla ~1–2 s per-item gap. A full cargo hold drains in a handful of frames.
-- **Fast-fetch** — mirror of fast-deposit for the reverse path. Pulling from global inventory or buying ammo / warp fuel fires the next item on the following frame instead of after ~1–2 s (ammo) or 12 s (warp fuel).
+- **Stack deposit** — each deposit cycle moves the full stack of an item type instead of one unit. Cycle cadence is unchanged (still `400/cargoCapacity` seconds, still gated by ship-progression and the Prompt Engineering skill tree), so a diverse 200-unit hold drains in *one tick per item type* instead of one per unit. Ammo and currency keep their vanilla per-cycle batches.
 - **Refinery routing** *(opt-in)* — when the autopilot would fly home with ore in cargo and home has no refinery, divert to the nearest friendly station with one. Saves the round-trip when mining far from base.
 - **Auto-refine on arrival** *(opt-in)* — when the autopilot docks at a station with a refinery, flip that refinery's Auto-Refine toggle on so pending ore refines passively while you're there.
 
-The first four change *when* the autopilot acts, never *what* it decides. The last two opt-in toggles do change routing and station behavior; both default off so existing installs stay on vanilla decisions.
+ETA-sync, Arrival-snap, and Stack-deposit don't change *what* ECHO decides — they fix UI lies, residual waits, and a per-tick architecture artifact respectively. The two opt-in toggles do change routing and station behavior; both default off so existing installs stay on vanilla decisions.
 
 ## Install
 
@@ -25,7 +24,7 @@ The first four change *when* the autopilot acts, never *what* it decides. The la
    ```
 5. **Launch the game.** Open the BepInEx console — you should see a load line ending with the number of Harmony patches applied, e.g.:
    ```
-   [Info :Vanguard Galaxy Echo] Vanguard Galaxy Echo v0.2.0 loaded (6 patches)
+   [Info :Vanguard Galaxy Echo] Vanguard Galaxy Echo v0.3.0 loaded (6 patches)
    ```
 
 ## Uninstall
@@ -36,18 +35,29 @@ Delete the `BepInEx/plugins/VGEcho/` folder. Optionally also delete `BepInEx/con
 
 BepInEx writes the config to `BepInEx/config/vgecho.cfg` on first launch. All toggles live under `[Autopilot]`:
 
-| Key                | Default | Purpose                                                                                                                                            |
-| ------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TimingEnabled`    | `true`  | Master toggle for the four timing tweaks below. When `false`, all timing tweaks are skipped and the vanilla cycle runs unchanged.                  |
-| `EtaSync`          | `true`  | While warping, drive the cycle from distance-based travel progress. Fill circle completes exactly on drop-out.                                     |
-| `ArrivalSnap`      | `true`  | On final-waypoint arrival, zero the cycle so the next autonomous action fires immediately.                                                         |
-| `FastDeposit`      | `true`  | After each autopilot cargo deposit or auto-sell, zero the cycle so successive items move on the next frame.                                        |
-| `FastFetch`        | `true`  | After each autopilot global-inventory transfer or shop buy (ammo / warp fuel), zero the cycle so the next item fires on the next frame.            |
-| `RefineryRoute`    | `false` | When cargo contains ore and the autopilot would fly back to your home station (and home has no refinery), divert to the nearest station that does. |
-| `RefineryMaxHops`  | `2`     | Maximum jump-gate hops to search for a refinery station. Matches the vanilla mission-station search range. Accepts `1`–`10`.                       |
-| `AutoRefine`       | `false` | On autopilot arrival at a station with a refinery, enable that refinery's Auto-Refine toggle. Setting sticks per-station.                          |
+| Key                | Default | Purpose                                                                                                                                                                                       |
+| ------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TimingEnabled`    | `true`  | Master toggle for `EtaSync` and `ArrivalSnap`. When `false`, both are skipped and the vanilla 12 s cycle runs unchanged. Does not affect `StackDeposit`.                                      |
+| `EtaSync`          | `true`  | While warping, drive the cycle from distance-based travel progress. Fill circle completes exactly on drop-out.                                                                                |
+| `ArrivalSnap`      | `true`  | On final-waypoint arrival, zero the cycle so the next autonomous action fires immediately.                                                                                                    |
+| `StackDepositMode` | `Tiered`  | Controls how each autopilot deposit cycle moves cargo. `Off` = vanilla 1 unit/tick. `Tiered` = mastery-driven progression curve mirroring vanilla's `milestonesMastery` cadence (see table below). `Always` = full stack from level 0 (pure QoL override). Cycle cadence is unchanged in all modes. Independent of `TimingEnabled`. |
 
-Disable any feature independently — no rebuild needed, just relaunch the game. The four timing tweaks are all-on by default; the two routing tweaks are opt-in because they change what ECHO decides, not just when.
+`Tiered` progression table:
+
+| Autopilot mastery | Per-tick deposit                    |
+| ----------------- | ----------------------------------- |
+| 0–9               | 1 unit (vanilla)                    |
+| 10–19             | 25% of stack/tick (min 5 units)     |
+| 20–29             | 50% of stack/tick (min 10 units)    |
+| 30–39             | 75% of stack/tick (min 25 units)    |
+| 40+               | full stack/tick                     |
+
+Mastery accrues automatically — every autopilot tick grants 10 XP to the autopilot tree, no skill points required. The current tier and next-threshold info is shown in the Engineering tree's mastery badge tooltip while `Tiered` is active.
+| `RefineryRoute`    | `false` | When cargo contains ore and the autopilot would fly back to your home station (and home has no refinery), divert to the nearest station that does.                                            |
+| `RefineryMaxHops`  | `2`     | Maximum jump-gate hops to search for a refinery station. Matches the vanilla mission-station search range. Accepts `1`–`10`.                                                                  |
+| `AutoRefine`       | `false` | On autopilot arrival at a station with a refinery, enable that refinery's Auto-Refine toggle. Setting sticks per-station.                                                                     |
+
+Disable any feature independently — no rebuild needed, just relaunch the game. The three default-on toggles fix UI/architecture issues without bypassing skill-tree progression; the two routing tweaks are opt-in because they change what ECHO decides, not just how it executes.
 
 ## Troubleshooting
 
@@ -64,8 +74,8 @@ Disable any feature independently — no rebuild needed, just relaunch the game.
 
 ## Known limitations
 
-- **Game version drift** — VGEcho hooks private method names (`IdleManager.SetQuickerUpdateTimer`, `IdleManager.FetchItem`, `IdleManager.Update`, `IdleManager.IdleTravelToSpaceStation`, `TravelManager.TravelToNextWaypoint`), a private field literal (`IdleManager.idleTravelTarget`), and compiler-generated backing-field literals (`<updateTimer>k__BackingField`, `<updateTimerBase>k__BackingField`). A patch that renames any of these breaks the plugin at load time. File an issue with the BepInEx console output and wait for a new VGEcho build.
-- **Full-stack transfer not implemented** — fast-deposit / fast-fetch still move one unit per cycle (20 for ammo, 20 for currency, 1 for everything else). They zero the *delay between* cycles, not the per-cycle quantity. Moving a full stack per cycle would require an IL transpiler on `IdleManager.FindActivity` and is tracked as future work.
+- **Game version drift** — VGEcho hooks private method names (`IdleManager.FindActivity`, `IdleManager.Update`, `IdleManager.IdleTravelToSpaceStation`, `TravelManager.TravelToNextWaypoint`), a private field literal (`IdleManager.idleTravelTarget`), compiler-generated backing-field literals (`<updateTimer>k__BackingField`, `<updateTimerBase>k__BackingField`), an IL-level method reference to `Inventory.Remove(InventoryItemType, int)`, and the autopilot tree name `"PromptEngineering"` for mastery lookups. A patch that renames any of these breaks the corresponding feature at load time (the stack-deposit transpiler self-disables with a console warning if the callsite count changes; mastery lookups fall through to "level 0" if the tree name changes, leaving stack-deposit gated as if mastery were never earned). File an issue with the BepInEx console output and wait for a new VGEcho build.
+- **Booster cadence stays vanilla** — stack-deposit reduces drain to one tick per item *type*, but each tick still waits the vanilla `400/cargoCapacity` seconds between item types. That's intentional: ship-progression (cargo capacity) and the Prompt Engineering skill tree are vanilla's progression hooks for autopilot speed, and bypassing them was the predecessor `FastDeposit` / `FastFetch` features' main flaw — they're now removed.
 
 ## Building from source
 
