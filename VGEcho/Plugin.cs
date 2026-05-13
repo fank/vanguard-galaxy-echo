@@ -14,7 +14,7 @@ public class Plugin : BaseUnityPlugin
     public const string PluginName = "Vanguard Galaxy Echo";
     // BepInEx parses PluginVersion through System.Version which rejects SemVer
     // pre-release suffixes, so stick to the plain N.N.N form.
-    public const string PluginVersion = "0.3.0";
+    public const string PluginVersion = "0.4.0";
 
     internal static Plugin Instance { get; private set; } = null!;
     internal static ManualLogSource Log { get; private set; } = null!;
@@ -26,6 +26,8 @@ public class Plugin : BaseUnityPlugin
     internal ConfigEntry<bool> CfgAutopilotRefineryRoute = null!;
     internal ConfigEntry<int> CfgAutopilotRefineryMaxHops = null!;
     internal ConfigEntry<bool> CfgAutopilotAutoRefine = null!;
+    internal ConfigEntry<bool> CfgAutopilotAutoLbrtr = null!;
+    internal ConfigEntry<float> CfgAutopilotAutoLbrtrRange = null!;
 
     private Harmony _harmony = null!;
 
@@ -88,12 +90,25 @@ public class Plugin : BaseUnityPlugin
             "storage (and the ship's cargo while docked), up to the refinery's max-jobs limit and while " +
             "credits allow. The setting sticks per-station and can still be toggled manually in the " +
             "refinery UI. Independent of TimingEnabled.");
+        CfgAutopilotAutoLbrtr = Config.Bind("Autopilot", "AutoLbrtr", false,
+            "When ECHO autopilot is engaged and the LB-RTR Bot salvage ability is equipped and " +
+            "off cooldown, auto-fire it at the closest wreck within AutoLbrtrRange that still has " +
+            "salvage. Effectively turns the activated ability into a triggered one for the duration " +
+            "of autopilot — same cooldown, same payload, no manual targeting. Skipped while you're " +
+            "mid-manual-cast. Beyond VGEcho's default 'fix UI/timing' scope, so opt-in.");
+        CfgAutopilotAutoLbrtrRange = Config.Bind("Autopilot", "AutoLbrtrRange", 80f,
+            new ConfigDescription(
+                "Maximum distance (world units) from the player ship to scan for wrecks when " +
+                "AutoLbrtr is enabled. Tune up if the drone reliably reaches further wrecks " +
+                "before its duration expires; down if it keeps falling short.",
+                new AcceptableValueRange<float>(20f, 500f)));
 
         _harmony = new Harmony(PluginGuid);
         _harmony.PatchAll(typeof(Patches.AutopilotTimingPatches));
         _harmony.PatchAll(typeof(Patches.AutopilotStackPatches));
         _harmony.PatchAll(typeof(Patches.AutopilotRefineryPatches));
         _harmony.PatchAll(typeof(Patches.AutopilotUIPatches));
+        _harmony.PatchAll(typeof(Patches.AutopilotLbrtrPatches));
         Log.LogInfo($"{PluginName} v{PluginVersion} loaded ({_harmony.GetPatchedMethods().Count()} patches)");
     }
 

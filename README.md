@@ -7,8 +7,9 @@ A BepInEx plugin for [Vanguard Galaxy](https://store.steampowered.com/app/347180
 - **Stack deposit** — each deposit cycle moves the full stack of an item type instead of one unit. Cycle cadence is unchanged (still `400/cargoCapacity` seconds, still gated by ship-progression and the Prompt Engineering skill tree), so a diverse 200-unit hold drains in *one tick per item type* instead of one per unit. Ammo and currency keep their vanilla per-cycle batches.
 - **Refinery routing** *(opt-in)* — when the autopilot would fly home with ore in cargo and home has no refinery, divert to the nearest friendly station with one. Saves the round-trip when mining far from base.
 - **Auto-refine on arrival** *(opt-in)* — when the autopilot docks at a station with a refinery, flip that refinery's Auto-Refine toggle on so pending ore refines passively while you're there.
+- **Auto LB-RTR** *(opt-in)* — while autopilot is engaged, auto-fire the LB-RTR Bot salvage ability at the closest in-range wreck whenever it's off cooldown. Same cooldown, same payload, no manual targeting — effectively turns the activated ability into a triggered one for the duration of autopilot.
 
-ETA-sync, Arrival-snap, and Stack-deposit don't change *what* ECHO decides — they fix UI lies, residual waits, and a per-tick architecture artifact respectively. The two opt-in toggles do change routing and station behavior; both default off so existing installs stay on vanilla decisions.
+ETA-sync, Arrival-snap, and Stack-deposit don't change *what* ECHO decides — they fix UI lies, residual waits, and a per-tick architecture artifact respectively. The opt-in toggles change routing, station behavior, or ability casting; they default off so existing installs stay on vanilla decisions.
 
 ## Install
 
@@ -24,7 +25,7 @@ ETA-sync, Arrival-snap, and Stack-deposit don't change *what* ECHO decides — t
    ```
 5. **Launch the game.** Open the BepInEx console — you should see a load line ending with the number of Harmony patches applied, e.g.:
    ```
-   [Info :Vanguard Galaxy Echo] Vanguard Galaxy Echo v0.3.0 loaded (6 patches)
+   [Info :Vanguard Galaxy Echo] Vanguard Galaxy Echo v0.4.0 loaded (7 patches)
    ```
 
 ## Uninstall
@@ -56,8 +57,10 @@ Mastery accrues automatically — every autopilot tick grants 10 XP to the autop
 | `RefineryRoute`    | `false` | When cargo contains ore and the autopilot would fly back to your home station (and home has no refinery), divert to the nearest station that does.                                            |
 | `RefineryMaxHops`  | `2`     | Maximum jump-gate hops to search for a refinery station. Matches the vanilla mission-station search range. Accepts `1`–`10`.                                                                  |
 | `AutoRefine`       | `false` | On autopilot arrival at a station with a refinery, enable that refinery's Auto-Refine toggle. Setting sticks per-station.                                                                     |
+| `AutoLbrtr`        | `false` | While autopilot is engaged, auto-fire the equipped LB-RTR Bot salvage ability at the closest in-range wreck with salvage whenever it comes off cooldown. Skipped while you're mid-manual-cast. Independent of `TimingEnabled`. |
+| `AutoLbrtrRange`   | `80`    | Max distance (world units) from the player ship to scan for wrecks when `AutoLbrtr` is enabled. Accepts `20`–`500`. Tune up if the drone reliably reaches farther wrecks before its duration expires; down if it keeps falling short. |
 
-Disable any feature independently — no rebuild needed, just relaunch the game. The three default-on toggles fix UI/architecture issues without bypassing skill-tree progression; the two routing tweaks are opt-in because they change what ECHO decides, not just how it executes.
+Disable any feature independently — no rebuild needed, just relaunch the game. The three default-on toggles fix UI/architecture issues without bypassing skill-tree progression; the opt-in toggles change what ECHO decides or casts on your behalf, not just how it executes.
 
 ## Troubleshooting
 
