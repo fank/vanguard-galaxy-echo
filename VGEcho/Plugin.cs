@@ -107,7 +107,7 @@ public class Plugin : BaseUnityPlugin
         _harmony.PatchAll(typeof(Patches.AutopilotTimingPatches));
         _harmony.PatchAll(typeof(Patches.AutopilotStackPatches));
         _harmony.PatchAll(typeof(Patches.AutopilotRefineryPatches));
-        _harmony.PatchAll(typeof(Patches.AutopilotUIPatches));
+        _harmony.PatchAll(typeof(Patches.SettingsMenuPatches));
         _harmony.PatchAll(typeof(Patches.AutopilotLbrtrPatches));
         Log.LogInfo($"{PluginName} v{PluginVersion} loaded ({_harmony.GetPatchedMethods().Count()} patches)");
     }
