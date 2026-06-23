@@ -41,7 +41,7 @@ internal static class AutopilotUIPatches
     private const string AutoRefineRowName = "vgecho_autoRefineRow";
     private const string RefineryRouteRowName = "vgecho_refineryRouteRow";
     private const string EchoHeaderName = "vgecho_sectionHeader";
-    private const string EchoHeaderLabel = "Echo";
+    private const string EchoHeaderLabel = "VGEcho";
 
     // Tooltip body strings use the game's #word# highlight convention — the
     // regex in Translation.Translate replaces #text# with <color=#FFD100>text
