@@ -70,7 +70,6 @@ internal static class SettingsMenuPatches
     private static void InjectEchoButton(SettingsMenu menu)
     {
         var root = menu.gameObject;
-        if (root.transform.Find(EchoButtonName) != null) return;
 
         Button? navButton = FindNavButton(root);
         if (navButton == null)
@@ -81,6 +80,10 @@ internal static class SettingsMenuPatches
 
         Transform? parent = navButton.transform.parent;
         if (parent == null) return;
+
+        // Idempotency: the clone lives under `parent` (the nav-button container),
+        // not under the SettingsMenu root — check there or the guard never matches.
+        if (parent.Find(EchoButtonName) != null) return;
 
         var cloneGO = UnityEngine.Object.Instantiate(navButton.gameObject, parent);
         cloneGO.name = EchoButtonName;
@@ -135,6 +138,26 @@ internal static class SettingsMenuPatches
 
     private static void ShowEchoSettings(SettingsMenu menu)
     {
+        // Invoked from the button's onClick, outside the Start postfix try/catch —
+        // guard everything so a failure logs cleanly instead of throwing into Unity.
+        try
+        {
+            ShowEchoSettingsCore(menu);
+        }
+        catch (Exception e)
+        {
+            Plugin.Log.LogError($"[settings-menu] ShowEchoSettings failed: {e}");
+        }
+    }
+
+    private static void ShowEchoSettingsCore(SettingsMenu menu)
+    {
+        if (SettingsContainerField == null || ActiveMenuField == null)
+        {
+            Plugin.Log.LogError("[settings-menu] settingsContainer/activeMenu field not found; cannot show ECHO settings");
+            return;
+        }
+
         var container = (GameObject?)SettingsContainerField.GetValue(menu);
         if (container == null) return;
 
@@ -259,15 +282,16 @@ internal static class SettingsMenuPatches
         labelRT.anchorMin = Vector2.zero;
         labelRT.anchorMax = Vector2.one;
         labelRT.pivot = new Vector2(0.5f, 0.5f);
-        labelRT.anchoredPosition = Vector2.zero;
-        labelRT.sizeDelta = Vector2.zero;
+        // Constrain the actual rect so the label's raycast area leaves the toggle
+        // and dropdown clear, rather than insetting only the text via tmp.margin.
+        labelRT.offsetMin = new Vector2(leftMargin, 0f);
+        labelRT.offsetMax = new Vector2(-rightMargin, 0f);
 
         var tmp = labelGO.AddComponent<TextMeshProUGUI>();
         tmp.text = text;
         if (_uiFont != null) tmp.font = _uiFont;
         tmp.fontSize = 16;
         tmp.alignment = TextAlignmentOptions.Left;
-        tmp.margin = new Vector4(leftMargin, 0f, rightMargin, 0f);
         tmp.color = new Color32(245, 245, 245, 230);
         tmp.raycastTarget = true;
         return tmp;
