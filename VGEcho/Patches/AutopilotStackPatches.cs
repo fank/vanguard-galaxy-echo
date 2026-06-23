@@ -8,7 +8,6 @@ using Behaviour.Item;
 using Behaviour.UI;
 using Behaviour.UI.Tooltip;
 using HarmonyLib;
-using Source.Crew;
 using Source.Galaxy;
 using Source.Galaxy.POI;
 using Source.Item;
