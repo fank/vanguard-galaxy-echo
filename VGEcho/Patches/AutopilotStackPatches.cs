@@ -31,13 +31,13 @@ public enum StackDepositMode
 
 /// <summary>
 /// Stack-aware autopilot deposits with a mastery-driven progression curve.
-/// Vanilla <see cref="IdleManager.FindActivity"/> transfers a single unit per
-/// cycle for general cargo, with hardcoded batches for ammo (max(20, magSize))
-/// and currency (20). At 400/cargoCapacity seconds per cycle, a 200-unit hold
-/// takes ~6.6 minutes to drain regardless of how diverse the cargo is.
+/// Vanilla's autopilot deposit (<c>IdleManager.DropFoundItem</c>) transfers a
+/// single unit per cycle for general cargo, with hardcoded batches for ammo
+/// (max(20, magSize)) and currency (20). At 400/cargoCapacity seconds per cycle,
+/// a 200-unit hold takes ~6.6 minutes to drain regardless of cargo diversity.
 ///
 /// We transpile the deposit-amount argument of the single
-/// <c>cargo.Remove(InventoryItemType, int)</c> call inside <c>FindActivity</c>
+/// <c>cargo.Remove(InventoryItemType, int)</c> call inside <c>DropFoundItem</c>
 /// so each tick moves more of the selected non-ammo / non-currency item type
 /// at once. How much depends on <see cref="StackDepositMode"/> and the player's
 /// autopilot mastery level — vanilla's autopilot tree already accumulates
@@ -225,7 +225,7 @@ internal static class AutopilotStackPatches
 
     /// <summary>
     /// Drop-in replacement for the <c>cargo.Remove(item, vanillaAmount)</c> call
-    /// inside <see cref="IdleManager.FindActivity"/>. Same signature as
+    /// inside <c>IdleManager.DropFoundItem</c>. Same signature as
     /// <see cref="Inventory.Remove(InventoryItemType, int)"/> at the IL level
     /// (consumes [cargo, item, amount], returns int actually removed) so the
     /// transpiler can swap a single instruction.
@@ -242,10 +242,10 @@ internal static class AutopilotStackPatches
             return cargo.Remove(item, vanillaAmount);
         }
 
-        // Only act on the autopilot path. FindActivity is called from
-        // IdleManager.Update, which is gated on autoPlay elsewhere — but
-        // belt-and-braces in case a future game patch routes a manual deposit
-        // through the same callsite.
+        // Only act on the autopilot path. DropFoundItem runs inside the
+        // FindActivity deposit cycle (driven by IdleManager.Update, gated on
+        // autoPlay) — but belt-and-braces in case a future game patch routes a
+        // manual deposit through the same callsite.
         var player = GamePlayer.current;
         if (player == null || !player.autoPlay)
         {
@@ -326,19 +326,19 @@ internal static class AutopilotStackPatches
 
     /// <summary>
     /// Replaces the single <c>callvirt Inventory.Remove(InventoryItemType, int)</c>
-    /// inside <see cref="IdleManager.FindActivity"/> with a call to
+    /// inside <c>IdleManager.DropFoundItem</c> with a call to
     /// <see cref="StackAwareRemove"/>. The helper takes the same three operands
     /// from the stack ([cargo, item, amount]) and returns the same type (int),
     /// so it's a one-instruction swap with no stack juggling.
     ///
     /// We expect exactly one match. If a future game patch adds another
-    /// <c>cargo.Remove(InventoryItemType, int)</c> callsite into FindActivity,
+    /// <c>cargo.Remove(InventoryItemType, int)</c> callsite into DropFoundItem,
     /// we log a warning and skip rather than blindly rewriting both — the user
     /// can disable <c>StackDeposit</c> in config until the mod is updated.
     /// </summary>
     [HarmonyTranspiler]
-    [HarmonyPatch(typeof(IdleManager), nameof(IdleManager.FindActivity))]
-    private static IEnumerable<CodeInstruction> FindActivity_Transpiler(IEnumerable<CodeInstruction> instructions)
+    [HarmonyPatch(typeof(IdleManager), "DropFoundItem")]
+    private static IEnumerable<CodeInstruction> DropFoundItem_Transpiler(IEnumerable<CodeInstruction> instructions)
     {
         var list = new List<CodeInstruction>(instructions);
         int matches = 0;
@@ -359,7 +359,7 @@ internal static class AutopilotStackPatches
         if (matches == 0)
         {
             Plugin.Log.LogWarning(
-                "[autopilot-stack] FindActivity transpiler: no cargo.Remove(InventoryItemType, int) " +
+                "[autopilot-stack] DropFoundItem transpiler: no cargo.Remove(InventoryItemType, int) " +
                 "callsite found — stack-deposit will be inactive. Game version may have changed.");
             return list;
         }
@@ -367,14 +367,14 @@ internal static class AutopilotStackPatches
         if (matches > 1)
         {
             Plugin.Log.LogWarning(
-                $"[autopilot-stack] FindActivity transpiler: expected 1 cargo.Remove callsite, " +
+                $"[autopilot-stack] DropFoundItem transpiler: expected 1 cargo.Remove callsite, " +
                 $"found {matches}. Skipping rewrite to avoid corrupting unrelated calls — " +
                 "stack-deposit will be inactive.");
             return list;
         }
 
         list[firstMatchIndex] = new CodeInstruction(OpCodes.Call, StackAwareRemoveImpl);
-        Plugin.Log.LogInfo("[autopilot-stack] FindActivity transpiler applied (1 callsite rewritten)");
+        Plugin.Log.LogInfo("[autopilot-stack] DropFoundItem transpiler applied (1 callsite rewritten)");
         return list;
     }
 
