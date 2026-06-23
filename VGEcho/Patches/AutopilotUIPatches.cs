@@ -15,50 +15,33 @@ namespace VGEcho.Patches;
 
 /// <summary>
 /// Runtime UI injection for the Autopilot side-tab. On each <see cref="Autopilot"/>
-/// <c>Awake</c>, clones the vanilla "Auto sell" row for each of our opt-in
-/// behaviour toggles and binds the cloned Toggle to the corresponding BepInEx
-/// config entry:
-///   • <c>AutoRefine</c> — right column at NoTravel's y (below Auto-sell).
-///   • <c>RefineryRoute</c> ("Divert to refinery") — left column, row below AmmoMinutes.
+/// <c>Awake</c>, appends an "Echo" section to the scroll-view content list — a
+/// header (cloned from the vanilla "Economy" header for matching styling) followed
+/// by our opt-in toggles, each cloned from the "Auto sell" row and bound to a
+/// BepInEx config entry: <c>AutoRefine</c> ("Auto-refine on dock") and
+/// <c>RefineryRoute</c> ("Divert to refinery").
 ///
-/// The observed Container layout is NOT a clean 2-column grid:
-///   • MiningLocationRow / RunMissions / PreferMissions / NoTravel / AmmoMinutes
-///     all have stretched anchors that make their RectTransforms span the full
-///     container width even though their visible content (toggle, slider) sits
-///     on the left half.
-///   • Loadout / AutoDetected / Autosell are tucked into the right half of the
-///     first three rows via anchoredPosition.x=300.
-///   • That leaves only one right-column cell empty (NoTravel's row) and
-///     a full empty row below AmmoMinutes — which is where our toggles go.
-///
-/// A few non-obvious constraints the prefab forced on us:
+/// The content list (<c>ScrollView/Viewport/Content</c>) stacks its children via a
+/// layout group, so placement is purely sibling-order: we append and let the layout
+/// position everything. A few non-obvious constraints the prefab forces on us:
 ///   • The cloned Toggle's <c>onValueChanged</c> carries prefab-serialised calls
 ///     wired to <c>Autopilot.ToggleAutoSell</c>. Public <c>RemoveAllListeners()</c>
 ///     only clears runtime listeners; the persistent ones have to be nuked via
 ///     reflection into <c>UnityEventBase.m_PersistentCalls</c> or the click
 ///     silently continues to flip <c>autopilotSettings.autoSell</c>.
-///   • <c>Container</c> has no <c>LayoutGroup</c>, so rows are free-positioned
-///     by RectTransform and render order is sibling-order. The vanilla row's
-///     label RectTransform is 300px wide and spans across the 2-column grid,
-///     so its raycast rect extends into the left-column's hit area. The
-///     Disable-Travel / Prioritize-homestation toggles are 160×32 (i.e. the
-///     entire left-column row), so clicks on the label's overhang hit the
-///     neighbouring left-column toggle instead of our label. We fix this by
-///     <see cref="Transform.SetAsLastSibling"/>-ing every clone so its label
-///     rect is topmost in the raycast order; a no-op <see cref="LabelClickProxy"/>
-///     on the label then absorbs the click.
-///   • The row contains a <c>Translatable</c> MonoBehaviour that re-applies the
-///     source translate key on every <c>OnEnable</c>, which would overwrite our
-///     label rename each time the tab reopens. We destroy it.
-///   • The cloned <c>TooltipSource</c>'s body text still points at the
-///     "@AutopilotAutoSell" key, so it's destroyed as well — no localised
-///     replacement available.
+///   • Cloned rows/headers carry a <c>Translatable</c> MonoBehaviour that re-applies
+///     the source translate key on every <c>OnEnable</c>, overwriting our relabel
+///     when the tab reopens. We destroy it.
+///   • The cloned <c>TooltipSource</c>'s body still points at the "@AutopilotAutoSell"
+///     key, so it's retargeted at our own title/body.
 /// </summary>
 [HarmonyPatch(typeof(Autopilot), "Awake")]
 internal static class AutopilotUIPatches
 {
     private const string AutoRefineRowName = "vgecho_autoRefineRow";
     private const string RefineryRouteRowName = "vgecho_refineryRouteRow";
+    private const string EchoHeaderName = "vgecho_sectionHeader";
+    private const string EchoHeaderLabel = "Echo";
 
     // Tooltip body strings use the game's #word# highlight convention — the
     // regex in Translation.Translate replaces #text# with <color=#FFD100>text
@@ -74,10 +57,6 @@ internal static class AutopilotUIPatches
     private const string RefineryRouteTooltip =
         "If enabled, #ECHO# will divert to the nearest station with a #refinery# when cargo " +
         "contains #ore# instead of returning to the #Home Station#.";
-
-    // The source row's x (Autosell) is 300 — the right-column anchor. The
-    // left-column rows (Homestation, RunMissions, ...) sit at x=5.
-    private const float LeftColumnX = 5f;
 
     private static readonly AccessTools.FieldRef<Autopilot, Toggle> AutoSellToggleRef =
         AccessTools.FieldRefAccess<Autopilot, Toggle>("autoSellToggle");
@@ -109,8 +88,7 @@ internal static class AutopilotUIPatches
             return;
         }
 
-        // The row we want to duplicate wraps the Toggle with its label/icon —
-        // one level up from the toggle itself.
+        // sourceToggle is the Autosell row's Toggle; climb to the row GameObject.
         var sourceRow = sourceToggle.transform.parent;
         if (sourceRow == null)
         {
@@ -124,6 +102,9 @@ internal static class AutopilotUIPatches
             sourceRow = sourceRow.parent;
         }
 
+        // The scroll-view content list. In 0.8.1 its children stack top-to-bottom
+        // via a layout group, so placement is by sibling order — append, don't
+        // position by RectTransform.
         var container = sourceRow.parent;
         if (container == null)
         {
@@ -131,33 +112,64 @@ internal static class AutopilotUIPatches
             return;
         }
 
-        var sourceRT = sourceRow.GetComponent<RectTransform>();
-        float rowHeight = sourceRT != null ? sourceRT.rect.height : 30f;
-        float rowStep = rowHeight + 6f;
-        float rightColumnX = sourceRT != null ? sourceRT.anchoredPosition.x : 300f;
+        // Idempotency: our section header marks a completed injection.
+        if (container.Find(EchoHeaderName) != null) return;
 
-        // AutoRefine goes in the empty right-column cell at NoTravel's y.
-        float autoRefineY = sourceRT != null
-            ? sourceRT.anchoredPosition.y - rowStep
-            : -150f;
+        // Our own "Echo" section header, then the toggles grouped beneath it —
+        // mirroring the vanilla General / Activities / Economy / Crew sections.
+        InjectSectionHeader(container, EchoHeaderLabel);
+
         var cfg = Plugin.Instance;
         InjectRow(container, sourceRow, AutoRefineRowName,
-            AutoRefineLabel, AutoRefineTooltip,
-            rightColumnX, autoRefineY, cfg.CfgAutopilotAutoRefine);
-
-        // Bottom row lives one step below the full-width AmmoMinutes slider.
-        // Look it up by name so we don't hardcode coordinates that may shift
-        // across game versions; fall back to two rows below Auto-sell.
-        var ammoRow = container.Find("AmmoMinutes");
-        var ammoRT = ammoRow != null ? ammoRow.GetComponent<RectTransform>() : null;
-        float bottomRowY = ammoRT != null
-            ? ammoRT.anchoredPosition.y - rowStep
-            : autoRefineY - rowStep;
-
-        // Left half of the bottom row: RefineryRoute.
+            AutoRefineLabel, AutoRefineTooltip, cfg.CfgAutopilotAutoRefine);
         InjectRow(container, sourceRow, RefineryRouteRowName,
-            RefineryRouteLabel, RefineryRouteTooltip,
-            LeftColumnX, bottomRowY, cfg.CfgAutopilotRefineryRoute);
+            RefineryRouteLabel, RefineryRouteTooltip, cfg.CfgAutopilotRefineryRoute);
+    }
+
+    /// <summary>
+    /// Clone an existing section header (preferring "Economy") so our section
+    /// matches the vanilla header styling, relabel it, and append it. The cloned
+    /// <see cref="Behaviour.Util.Translatable"/> is destroyed so it can't revert
+    /// our text to the source translate key on the next enable.
+    /// </summary>
+    private static void InjectSectionHeader(Transform container, string title)
+    {
+        Transform? template = FindHeaderTemplate(container);
+        if (template == null)
+        {
+            Plugin.Log.LogWarning("[autopilot-ui] no section header to clone; skipping Echo header");
+            return;
+        }
+
+        var clone = UnityEngine.Object.Instantiate(template.gameObject, container);
+        clone.name = EchoHeaderName;
+        clone.transform.SetAsLastSibling();
+
+        foreach (var translatable in clone.GetComponentsInChildren<Behaviour.Util.Translatable>(includeInactive: true))
+        {
+            UnityEngine.Object.Destroy(translatable);
+        }
+
+        var text = clone.GetComponentInChildren<TMP_Text>(includeInactive: true);
+        if (text != null) text.text = title;
+        else Plugin.Log.LogWarning("[autopilot-ui] cloned header has no TMP_Text to relabel");
+    }
+
+    // Prefer the Economy header (its name carries a trailing space in 0.8.1);
+    // fall back to any child whose name contains "Header".
+    private static Transform? FindHeaderTemplate(Transform container)
+    {
+        for (int i = 0; i < container.childCount; i++)
+        {
+            if (container.GetChild(i).name.TrimEnd() == "EconomyHeader")
+                return container.GetChild(i);
+        }
+        for (int i = 0; i < container.childCount; i++)
+        {
+            if (container.GetChild(i).name.IndexOf("Header", StringComparison.OrdinalIgnoreCase) >= 0)
+                return container.GetChild(i);
+        }
+        return null;
     }
 
     /// <summary>
@@ -167,27 +179,24 @@ internal static class AutopilotUIPatches
     /// </summary>
     private static void InjectRow(Transform container, Transform sourceRow,
         string cloneName, string labelText, string tooltipText,
-        float anchoredX, float anchoredY,
         ConfigEntry<bool> config)
     {
         InjectRow(container, sourceRow, cloneName, labelText, tooltipText,
-            anchoredX, anchoredY,
             getValue: () => config.Value,
             setValue: isOn => config.Value = isOn);
     }
 
     /// <summary>
-    /// Clone <paramref name="sourceRow"/> into <paramref name="container"/>,
-    /// reposition it at (<paramref name="anchoredX"/>, <paramref name="anchoredY"/>),
-    /// relabel the primary TMP_Text to <paramref name="labelText"/>, retarget
-    /// every cloned <see cref="TooltipSource"/> at our own title/body, scrub
-    /// all prefab-wired handlers, and drive the cloned Toggle via the supplied
-    /// getter/setter. Using lambdas (rather than a single ConfigEntry) lets one
-    /// toggle mirror multiple configs at once if a future feature needs it.
+    /// Clone <paramref name="sourceRow"/> into <paramref name="container"/> (as the
+    /// last sibling, so the content list's layout group positions it), relabel the
+    /// primary TMP_Text to <paramref name="labelText"/>, retarget every cloned
+    /// <see cref="TooltipSource"/> at our own title/body, scrub all prefab-wired
+    /// handlers, and drive the cloned Toggle via the supplied getter/setter. Using
+    /// lambdas (rather than a single ConfigEntry) lets one toggle mirror multiple
+    /// configs at once if a future feature needs it.
     /// </summary>
     private static void InjectRow(Transform container, Transform sourceRow,
         string cloneName, string labelText, string tooltipText,
-        float anchoredX, float anchoredY,
         Func<bool> getValue, Action<bool> setValue)
     {
         // Idempotency: if we already added one on a previous Awake of the same
@@ -196,16 +205,8 @@ internal static class AutopilotUIPatches
 
         var cloneGO = UnityEngine.Object.Instantiate(sourceRow.gameObject, container);
         cloneGO.name = cloneName;
-        // Render order: sibling index decides who wins raycasts at overlap.
-        // See class docstring for the left-column-overlap story.
+        // Appended last; the content list's layout group positions it in order.
         cloneGO.transform.SetAsLastSibling();
-
-        // Pin to the requested (x, y).
-        var cloneRT = cloneGO.GetComponent<RectTransform>();
-        if (cloneRT != null)
-        {
-            cloneRT.anchoredPosition = new Vector2(anchoredX, anchoredY);
-        }
 
         var toggle = cloneGO.GetComponentInChildren<Toggle>(includeInactive: true);
         if (toggle == null)
